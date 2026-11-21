@@ -20,6 +20,11 @@ x-python-service: &python-service
     KAFKA_BOOTSTRAP: redpanda:9092
     REDIS_URL: redis://redis:6379/0
     BASELINE_PATH: /app/models/baseline.json
+    POSTGRES_DSN: postgresql://gatekeeper:gatekeeper@postgres/gatekeeper
+    ENFORCER_URL: http://victim:9000
+    ENFORCER_TOKEN: ${ENFORCER_TOKEN:-local-dev-token}  # set a real one outside the lab
+    ALLOWLIST: 172.30.0.201/32  # a known-good load tester: may be flagged, never blocked
+    RULE_TTL_S: 15  # short so gates and demos see rules expire
   restart: unless-stopped
 
 services:
@@ -61,6 +66,7 @@ services:
       POSTGRES_USER: gatekeeper
       POSTGRES_PASSWORD: gatekeeper
       POSTGRES_DB: gatekeeper
+    volumes: ["./postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro"]
     networks: [lab]
     healthcheck:
       test: ["CMD", "pg_isready", "-U", "gatekeeper"]
@@ -100,6 +106,27 @@ services:
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://localhost:8000/healthz')"]
       interval: 3s
+
+  # Applies rules with nftables inside the victim's network namespace.
+  enforcer:
+    <<: *python-service
+    command: uvicorn services.enforcer.main:app --host 0.0.0.0 --port 9000
+    network_mode: service:victim
+    cap_add: [NET_ADMIN]
+    depends_on:
+      victim: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://localhost:9000/healthz')"]
+      interval: 3s
+
+  mitigation:
+    <<: *python-service
+    command: python -m services.mitigation.main
+    networks: [lab]
+    depends_on:
+      redpanda-init: { condition: service_completed_successfully }
+      postgres: { condition: service_healthy }
+      enforcer: { condition: service_healthy }
 
   # Three replicas = three normal source IPs.
   loadgen:

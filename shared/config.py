@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
+from ipaddress import IPv4Network
 
 
 @dataclass(frozen=True)
@@ -18,6 +19,15 @@ class Settings:
     detector: str
     baseline_path: str
     score_threshold: float
+    postgres_dsn: str
+    enforcer_url: str
+    enforcer_token: str  # shared secret: only the controller may change rules
+    allowlist: tuple[IPv4Network, ...]
+    consecutive_windows: int  # flagged windows in a row before acting
+    escalate_after: int  # further flagged windows before rate-limit becomes a block
+    rule_ttl_s: int
+    rate_limit_pps: int
+    max_score_age_s: int  # older scores are replays of the past: never act on them
 
     @classmethod
     def from_env(cls) -> Settings:
@@ -33,4 +43,15 @@ class Settings:
             detector=env("DETECTOR", "threshold"),
             baseline_path=env("BASELINE_PATH", "models/baseline.json"),
             score_threshold=float(env("SCORE_THRESHOLD", "0.5")),
+            postgres_dsn=env(
+                "POSTGRES_DSN", "postgresql://gatekeeper:gatekeeper@localhost/gatekeeper"
+            ),
+            enforcer_url=env("ENFORCER_URL", "http://victim:9000"),
+            enforcer_token=env("ENFORCER_TOKEN", ""),
+            allowlist=tuple(IPv4Network(n) for n in env("ALLOWLIST", "").split(",") if n),
+            consecutive_windows=int(env("CONSECUTIVE_WINDOWS", "3")),
+            escalate_after=int(env("ESCALATE_AFTER", "5")),
+            rule_ttl_s=int(env("RULE_TTL_S", "60")),
+            rate_limit_pps=int(env("RATE_LIMIT_PPS", "100")),
+            max_score_age_s=int(env("MAX_SCORE_AGE_S", "30")),
         )

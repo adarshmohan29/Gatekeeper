@@ -30,6 +30,7 @@ Real-time DDoS detection and automated mitigation platform. Runs entirely locall
 - Under overload, drop and count; never crash or block on an unbounded queue.
 - On SIGTERM: close consumers (leave the group immediately) and flush producers. Never leave a stale group member.
 - Python services share one image (`services/Dockerfile`); compose picks the entrypoint.
+- Control-plane APIs (e.g. the enforcer) are reachable from the lab network, attackers included: they require the shared token, and their inputs are validated models (no shell, no string-built commands from raw input).
 - Pure logic lives in testable modules; `services/*/main.py` is thin I/O wiring, excluded from unit coverage and exercised by the gate tests.
 - Gate tests live in `tests/gates/test_phase<N>.py` (N = 0–4, 5a, 5b, 5c); run with `make gate N=<N>`.
 - Run the venv's Python (`.venv/bin/python`). Docker is OrbStack.

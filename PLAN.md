@@ -71,28 +71,29 @@ Design rules from the proposal's scalability section (§6b) that shape every pha
 
 ---
 
-## Phase 3: Mitigate
+## Phase 3: Mitigate ✅
 
 ### Tasks
-- [ ] PostgreSQL tables `alerts` and `actions` (id, ts, src_ip, action, reason, detector, score, expires_at, revoked_at).
-- [ ] `mitigation` controller consumes `scores`:
-  - [ ] Acts after K consecutive windows above the threshold (configurable).
-  - [ ] Allowlist: listed sources are never blocked.
-  - [ ] Rate-limit first, hard block if the attack persists.
-  - [ ] Every rule has a TTL; expired rules are removed automatically.
-  - [ ] Every action (apply, escalate, expire) is logged to PostgreSQL.
-  - [ ] Idempotent: a duplicate or replayed score never creates a second rule or a duplicate action row.
-- [ ] Enforcement agent in the victim's namespace (`NET_ADMIN`) applying nftables rules in a dedicated `inet gatekeeper` table. The controller calls it over a small HTTP API.
-- [ ] Measure time to mitigation (attack start to rule applied).
-- [ ] Unit tests: consecutive-window logic, allowlist, TTL expiry, idempotent apply/remove.
+- [x] PostgreSQL schema (`infra/compose/postgres/init.sql`): `alerts` (one row per flagged source window) and `actions` (rate_limit/block with reason, score, window, `expires_at`, `expired_at`). Unique keys make replays no-ops.
+- [x] `mitigation` controller consumes `scores`:
+  - [x] Streak of consecutive flagged windows, computed from `alerts` (no in-process state).
+  - [x] Rate-limit after `CONSECUTIVE_WINDOWS` (3); block after `ESCALATE_AFTER` (5) more.
+  - [x] Allowlist (`ALLOWLIST`, CIDRs): flagged and recorded as alerts, never acted on.
+  - [x] Every rule has a TTL (`RULE_TTL_S`; 15 s in Compose). The kernel removes it; the controller records `expired_at`.
+  - [x] Idempotent: unique (source, action, window) rows, an idempotent enforcer add, no action while a rule is active, scores older than `MAX_SCORE_AGE_S` ignored. Enforce happens before the log write, so a crash in between re-applies on replay.
+- [x] `enforcer` in the victim's namespace (`NET_ADMIN`): nftables table `inet gatekeeper` with timeout sets `blocked`/`ratelimited` and a per-source rate-limit meter. `POST /rules` requires a bearer token (`ENFORCER_TOKEN`), since the API is reachable from the lab network.
+- [x] The collector ignores control-plane ports (Kafka, enforcer).
+- [x] Time to mitigation measured by the gate.
+- [x] Unit tests: streak, decide (thresholds, escalation, active rules, allowlist), nft commands, settings.
+- [x] End-of-phase code review.
 
 ### Gate 3: flood blocked automatically, normal traffic untouched
 - **Automated:** `tests/gates/test_phase3.py`.
-  - Setup: Locust runs throughout, then the flood starts.
-  - Asserts during the flood: the attacker's rule appears and attacker packets are dropped. Locust's success rate stays ≥ 99%. No rule targets Locust or an allowlisted IP. An `actions` row exists.
-  - Asserts after the TTL: the rule is gone and the expiry is logged.
-  - Idempotency: replaying the same scores leaves the rule count and action rows unchanged.
-- **Manual:** `nft list table inet gatekeeper` during an attack; `SELECT * FROM actions` shows apply, then expire. Log the time to mitigation.
+  - Setup: floods from the attacker (172.30.0.200) and an allowlisted tester (172.30.0.201) while Locust runs.
+  - Asserts during the attack: the attacker is rate-limited within 10 s and then blocked; drop counters rise; no Locust or allowlisted IP ever gets a rule; Locust failure rate stays below 1%.
+  - Asserts afterwards: replayed scores create no actions; the audit tables are correct; the rules expire and the expiry is recorded.
+  - A rule POST without the token, made from inside the lab, gets 401.
+- **Manual:** `docker compose exec enforcer nft list table inet gatekeeper` during an attack; `SELECT * FROM actions` shows apply, then expire. Log the time to mitigation in `NOTES.md`.
 
 ---
 

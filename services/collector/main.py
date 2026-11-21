@@ -10,6 +10,7 @@ import signal
 import socket
 import sys
 import time
+from urllib.parse import urlsplit
 
 from services.collector.parse import parse_frame
 from shared.config import Settings
@@ -24,7 +25,11 @@ log = logging.getLogger("collector")
 def main() -> None:
     logging.basicConfig(level=logging.INFO)
     settings = Settings.from_env()
-    kafka_port = int(settings.kafka_bootstrap.rsplit(":", 1)[1])
+    # Control-plane traffic shares this interface; it isn't traffic to the victim.
+    control_ports = {
+        int(settings.kafka_bootstrap.rsplit(":", 1)[1]),
+        urlsplit(settings.enforcer_url).port,
+    }
     out = producer(settings.kafka_bootstrap)
     sock = socket.socket(socket.AF_PACKET, socket.SOCK_RAW, socket.ntohs(ETH_P_ALL))
     sock.bind((settings.capture_iface, 0))
@@ -37,8 +42,7 @@ def main() -> None:
             if addr[2] == socket.PACKET_OUTGOING:
                 continue
             event = parse_frame(frame, time.time())
-            # Skip our own Kafka traffic, which shares this interface.
-            if event is None or kafka_port in (event.src_port, event.dst_port):
+            if event is None or not control_ports.isdisjoint((event.src_port, event.dst_port)):
                 continue
             try:
                 out.produce(settings.flow_topic, key=event.partition_key, value=event.to_bytes())

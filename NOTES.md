@@ -2,6 +2,14 @@
 
 What broke, what was measured, what surprised me. Newest first.
 
+## Phase 3: Mitigate (2026-11-20)
+- **Measured:** time to mitigation (attack launch to first rule) of 3.4 s, 2.3 s and 3.3 s over three runs; block (escalated) at 8.0 s, 7.6 s and 8.0 s. That's detection (~1.5 s) plus 3 consecutive windows, then 5 more for the block. Normal traffic during the attacks: 481, 488 and 515 Locust requests with 0 failures. The allowlisted tester (172.30.0.201) raised 21 alerts and got 0 actions.
+- **Design:** the streak is computed from the `alerts` table (unique per source and window), so the controller holds no state and replays are naturally idempotent. Rules are nftables timeout-set members, so the kernel expires them; the controller only records `expired_at`.
+- **Design:** the collector taps packets (AF_PACKET) *before* netfilter, so a blocked attacker still shows up in features and keeps being flagged. That's useful: when a rule expires mid-attack, the streak is already past the escalation point and it goes straight back to a block.
+- **Security fix (review):** the enforcer API was reachable from the whole lab network, attacker included, so anyone could POST a rule and get legitimate users blocked: our mitigation turned into a DoS against them. Fix: bearer token (`ENFORCER_TOKEN`, constant-time compare; an empty token rejects everything). Gate 3 now probes it from inside the lab and gets 401. The pre-fix images let the same probe through.
+- **Broke (measurement):** running Gate 3 right after Gate 2 reported time to mitigation 0.0 s, because Gate 2's block was still active. The gate now waits for any leftover rules to expire before attacking.
+- **Known gaps:** if the victim container restarts, its netns (and nft rules) are lost while Postgres still lists them as active; that needs reconcile-on-startup (Phase 5b). Mitigation is per source IP only: a spoofed or distributed flood needs per-destination rate limiting.
+
 ## Phase 2: Detect (2026-11-20)
 - **Measured:** detection delay (attack launch to first flagged score) of 1.3 s, 1.5 s and 1.3 s over three Gate 2 runs, two of them cold starts. This includes about 1 s of attacker container start-up. 0 false positives in 30 s of normal traffic; only the attacker was ever flagged.
 - **Baseline** fitted on 177 vectors from 60 s of normal traffic: bounds pkt_rate 52.6/s, byte_rate 5216.8 B/s, syn_ack_ratio 2.0 (floor). Normal sources run at about 24 pkt/s each. The SYN flood (2000 pps) scores 1.0 immediately.

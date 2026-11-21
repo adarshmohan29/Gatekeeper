@@ -1,8 +1,9 @@
-"""Records passed between services over Kafka. All are keyed by source IP."""
+"""Records passed between services: Kafka records (keyed by source IP) and enforcement rules."""
 
 from __future__ import annotations
 
-from enum import IntEnum, IntFlag
+from enum import IntEnum, IntFlag, StrEnum
+from ipaddress import IPv4Address
 from typing import Self
 
 from pydantic import BaseModel, ConfigDict, Field, IPvAnyAddress
@@ -68,3 +69,16 @@ class Score(Record):
     window_end: int
     detector: str
     score: float = Field(ge=0.0, le=1.0)  # attack probability
+
+
+class Action(StrEnum):
+    RATE_LIMIT = "rate_limit"
+    BLOCK = "block"
+
+
+class Rule(BaseModel):
+    """A request to the enforcer: apply `action` to `ip` for `ttl_s` seconds."""
+
+    ip: IPv4Address
+    action: Action
+    ttl_s: int = Field(gt=0)

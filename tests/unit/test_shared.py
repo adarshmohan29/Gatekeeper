@@ -48,3 +48,9 @@ def test_settings_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
     assert s.flow_topic == "custom"
     assert s.kafka_bootstrap == "127.0.0.1:19092"
     assert s.capture_iface == "eth0"
+    assert s.allowlist == ()
+
+
+def test_allowlist_parses_networks(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("ALLOWLIST", "172.30.0.201/32,10.0.0.0/8")
+    assert [str(n) for n in Settings.from_env().allowlist] == ["172.30.0.201/32", "10.0.0.0/8"]
