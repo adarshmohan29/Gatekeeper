@@ -1,11 +1,12 @@
 PY      ?= .venv/bin/python
 COMPOSE ?= docker compose -f infra/compose/docker-compose.yml
 
-.PHONY: venv up down logs test lint gate baseline dataset train evaluate k8s-up k8s-down load-test
+.PHONY: venv up down logs test lint ci demo gate baseline dataset train evaluate k8s-up k8s-down load-test
 
 venv:
 	python3 -m venv .venv
 	$(PY) -m pip install -e '.[dev]'
+	git config core.hooksPath .githooks  # pre-commit runs `make ci`
 
 up:
 	$(COMPOSE) up -d --build
@@ -24,6 +25,14 @@ lint:
 	$(PY) -m ruff check .
 	$(PY) -m ruff format --check .
 	$(PY) -m mypy
+
+# Local CI, also run by the pre-commit hook. It checks the working tree, not only what is staged.
+ci: lint test
+	docker build -q -t gatekeeper:dev -f services/Dockerfile .
+
+# Brings up the stack, then floods the victim and narrates the mitigation (~1-3 min).
+demo: up
+	$(PY) -m scripts.demo
 
 # Usage: make gate N=1
 gate:

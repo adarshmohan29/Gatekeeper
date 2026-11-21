@@ -2,6 +2,12 @@
 
 What broke, what was measured, what surprised me. Newest first.
 
+## Phase 5c: Ship (2026-11-21)
+- **Measured (`make demo`, three runs):** rate-limited 4.1-4.2 s and blocked 8.9 s into a 30 s SYN flood; 13.6k-14.3k attack packets dropped; normal traffic 744-771 requests, 0 failures. From a clean copy (no venv, cold stack): `make venv` 47 s, `make demo` 69 s.
+- **Decision: no Kustomize overlays.** Kustomize already builds every manifest (generated ConfigMaps and Secret, autoscaling as its own layer). Overlays only pay off with a second environment, and there isn't one.
+- **Refactor:** Gate 3's lab helpers (flood, nftables state, Locust totals) moved to `scripts/lab.py`, shared with the demo instead of copied. `scripts/` became a package so mypy and the gate tests can import it; the demo runs as `python -m scripts.demo`.
+- **Pre-commit hook caveat:** `make ci` checks the working tree, not only the staged files, so unstaged breakage blocks a commit (and unstaged fixes can mask staged breakage).
+
 ## Phase 5b: Scale and survive (2026-11-21)
 - **Setup:** kind (single node; the Docker VM has 4 GB of the Mac's 8 GB, so Compose and kind don't run together), Calico, KEDA 2.21.1 (Helm), 3 Redpanda brokers with replication factor 3, all services as Deployments. The victim pod carries the collector and enforcer as sidecars: a pod shares one network namespace, which is what Compose emulated with `network_mode: service:victim`.
 - **Broke (safety): NetworkPolicies silently not enforced.** kindnet's policy engine needs kernel nfqueue, which fails on OrbStack's kernel (`netlink receive: no such file or directory`), and it fails *open*: a pod reached 1.1.1.1 and the "attacker" reached Redis. Fix: Calico instead of kindnet. Lesson: test that an isolation control actually blocks something; never assume it from "policy created".

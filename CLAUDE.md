@@ -14,11 +14,12 @@ Real-time DDoS detection and automated mitigation platform. Runs locally; public
 - nftables in the victim's network namespace for mitigation
 - Prometheus + Grafana (provisioned from `infra/monitoring/`); `prometheus_client` metrics on port 9100 in every service
 - Docker Compose first; Kubernetes (kind, multi-broker Redpanda, lag-based autoscaling) in Phase 5b
-- Local CI via `make ci` + git pre-commit hook; Helm or Kustomize (Phase 5c)
+- Local CI: `make ci` (lint, unit tests, image build), run by the pre-commit hook in `.githooks/` (`make venv` enables it); Kustomize for Kubernetes
+- `make demo`: stack up, flood, narrated mitigation; exits non-zero on failure
 - Locust (normal traffic), hping3 (attack traffic)
 
 ## Layout
-`services/{collector,feature_engine,detector,mitigation,loadgen,victim}`, `shared/`, `infra/{compose,k8s,monitoring}`, `models/`, `notebooks/`, `tests/{unit,gates}`, `docs/`.
+`services/{collector,feature_engine,detector,mitigation,enforcer,drift,loadgen,bench,attacker}`, `shared/`, `scripts/` (host-side tools; `scripts/lab.py` drives the Compose lab for the demo and gates), `infra/{compose,k8s,monitoring}`, `models/`, `notebooks/`, `tests/{unit,gates}`, `docs/`.
 
 ## Conventions
 - Detectors implement `score(features) -> float` and are swapped by config only.
