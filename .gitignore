@@ -1,0 +1,21 @@
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+
+# Data and model artifacts (commit deliberately with `git add -f` if needed)
+data/
+*.parquet
+*.onnx
+mlruns/
+
+# Env / editor / OS
+.env
+.vscode/
+.idea/
+.DS_Store
