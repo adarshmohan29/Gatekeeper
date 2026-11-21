@@ -1,0 +1,9 @@
+[  1.5s] pipeline ready: normal clients are browsing the victim and being scored
+[  1.8s] attacker 172.30.0.200 starts a SYN flood for 30 s
+[  5.3s] detected: attacker rate-limited 3.5 s into the attack
+[ 10.1s] still attacking: blocked 8.3 s into the attack
+[ 32.9s] flood over: nftables dropped 14,865 attack packets
+[ 33.2s] normal traffic during the attack: 730 requests, 0 failed
+Dashboard: http://localhost:3000 (Gatekeeper)
+PASS: attacker blocked after 8.3 s; normal clients unaffected
+exit 0

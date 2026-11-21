@@ -23,6 +23,12 @@ make demo
 PASS: attacker blocked after 8.9 s; normal clients unaffected
 ```
 
+![Grafana during the demo: flow spike, attacker rate-limited then blocked](docs/demo/03-attacker-blocked.png)
+
+**[Watch the demo video](docs/demo/demo.mp4)** (2 min): normal traffic, the flood, rate-limit
+escalating to a block, and the rules expiring on their own. Per-stage and per-panel snapshots
+are in [`docs/demo/`](docs/demo/).
+
 Requirements: Docker (with Compose), Python 3.11+, about 4 GB of memory for Docker. All
 attack traffic stays on an isolated Docker network, aimed at the project's own containers.
 Grafana is at http://localhost:3000 while the stack runs; `make down` stops it.

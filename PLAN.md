@@ -157,7 +157,7 @@ Design rules from the proposal's scalability section (§6b) that shape every pha
 - [x] Helm chart or Kustomize overlays replacing the raw manifests. (Kustomize builds every manifest, with generated ConfigMaps and Secret; autoscaling is a separate layer. No overlays: there is only one environment, so one would be speculative.)
 - [x] `make demo`: one command that brings up the stack, runs normal traffic, launches an attack and shows the mitigation.
 - [x] README: architecture diagram, results table, scaling numbers, SLO, limitations (simulated traffic, local cluster, generator-overfitting risk).
-- [ ] Short demo video (manual: record `make demo` with Grafana open).
+- [x] Short demo video: `docs/demo/demo.mp4`, with snapshots.
 
 ### Gate 5c: one-command demo of an attack and its mitigation
 - **Automated:** `make ci` passes; `tests/gates/test_phase5c.py` runs `make demo` and asserts that the attack is blocked and normal traffic is unaffected.
