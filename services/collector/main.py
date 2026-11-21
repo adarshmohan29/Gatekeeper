@@ -5,35 +5,35 @@ Runs inside the victim's network namespace (needs NET_RAW).
 
 from __future__ import annotations
 
-import logging
 import signal
 import socket
 import sys
 import time
 from urllib.parse import urlsplit
 
+from prometheus_client import Counter, start_http_server
+
 from services.collector.parse import parse_frame
 from shared.config import Settings
 from shared.kafka import producer
 
 ETH_P_ALL = 0x0003
-DROP_LOG_EVERY = 10_000
-
-log = logging.getLogger("collector")
+PUBLISHED = Counter("gatekeeper_events_published_total", "Flow events published to Kafka")
+DROPPED = Counter("gatekeeper_events_dropped_total", "Flow events dropped: producer queue full")
 
 
 def main() -> None:
-    logging.basicConfig(level=logging.INFO)
     settings = Settings.from_env()
     # Control-plane traffic shares this interface; it isn't traffic to the victim.
     control_ports = {
         int(settings.kafka_bootstrap.rsplit(":", 1)[1]),
         urlsplit(settings.enforcer_url).port,
+        settings.metrics_port,
     }
     out = producer(settings.kafka_bootstrap)
     sock = socket.socket(socket.AF_PACKET, socket.SOCK_RAW, socket.ntohs(ETH_P_ALL))
     sock.bind((settings.capture_iface, 0))
-    dropped = 0
+    start_http_server(settings.metrics_port)
     signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))  # so `finally` runs on docker stop
 
     try:
@@ -49,12 +49,10 @@ def main() -> None:
                 continue
             try:
                 out.produce(settings.flow_topic, key=event.partition_key, value=event.to_bytes())
+                PUBLISHED.inc()
             except BufferError:  # producer queue full: shed load instead of crashing
-                dropped += 1
-                if dropped % DROP_LOG_EVERY == 1:
-                    log.warning("producer queue full, %d events dropped so far", dropped)
+                DROPPED.inc()
             out.poll(0)
-
     finally:
         out.flush()  # deliver events already queued
 

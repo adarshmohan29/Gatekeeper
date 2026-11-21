@@ -13,13 +13,22 @@ import time
 import urllib.request
 
 import psycopg
+from prometheus_client import Counter, Gauge, Histogram, start_http_server
 
 from services.mitigation.policy import decide, streak
 from shared.config import Settings
 from shared.events import Action, Rule, Score
-from shared.kafka import batch, group_consumer
+from shared.kafka import batch, group_consumer, parse_or_dead_letter, producer
 
 log = logging.getLogger("mitigation")
+ACTIONS = Counter("gatekeeper_actions_total", "Rules applied", ["action"])
+EXPIRED = Counter("gatekeeper_rules_expired_total", "Rules expired", ["action"])
+ACTIVE = Gauge("gatekeeper_active_rules", "Rules currently in force", ["action"])
+LATENCY = Histogram(
+    "gatekeeper_mitigation_latency_seconds",
+    "From the end of the triggering feature window to the rule being applied",
+    buckets=[0.5, 1, 2, 5, 10, 30],
+)
 
 
 def enforce(url: str, token: str, rule: Rule) -> None:
@@ -81,16 +90,26 @@ def handle(conn: psycopg.Connection, s: Score, settings: Settings) -> None:
             settings.rule_ttl_s,
         ),
     )
+    ACTIONS.labels(action).inc()
+    LATENCY.observe(time.time() - s.window_end)
     log.warning("%s src=%s after %d flagged windows", action.upper(), s.src_ip, n)
 
 
 def record_expiries(conn: psycopg.Connection) -> None:
-    """The kernel removes expired rules; this records when, in the audit log."""
+    """The kernel removes expired rules; this records when, in the audit log, and in metrics."""
     for ip, action in conn.execute(
         "UPDATE actions SET expired_at = expires_at"
         " WHERE expired_at IS NULL AND expires_at <= now() RETURNING src_ip, action"
     ):
+        EXPIRED.labels(action).inc()
         log.info("EXPIRED %s src=%s", action, ip)
+    active: dict[str, int] = dict(
+        conn.execute(
+            "SELECT action, count(*) FROM actions WHERE expires_at > now() GROUP BY action"
+        ).fetchall()
+    )
+    for a in Action:
+        ACTIVE.labels(a).set(active.get(a, 0))
 
 
 def main() -> None:
@@ -98,12 +117,17 @@ def main() -> None:
     settings = Settings.from_env()
     conn = psycopg.connect(settings.postgres_dsn, autocommit=True)
     consumer = group_consumer(settings.kafka_bootstrap, settings.scores_topic, "mitigation")
+    out = producer(settings.kafka_bootstrap)  # dead letters only
+    for a in Action:  # labelled series start at 0, so the first increase is visible
+        ACTIONS.labels(a)
+        EXPIRED.labels(a)
+    start_http_server(settings.metrics_port)
     signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
     try:
         while True:
             msgs = batch(consumer.consume(500, timeout=0.5))
             now = time.time()
-            for s in (Score.from_bytes(m.value) for m in msgs):
+            for _, s in parse_or_dead_letter(msgs, Score, out, settings.scores_topic):
                 if (
                     s.score >= settings.score_threshold
                     and now - s.window_end <= settings.max_score_age_s
@@ -113,6 +137,7 @@ def main() -> None:
                 consumer.commit(asynchronous=False)
             record_expiries(conn)
     finally:
+        out.flush()
         consumer.close()
         conn.close()
 

@@ -30,7 +30,7 @@ x-python-service: &python-service
 
 services:
   redpanda:
-    image: redpandadata/redpanda:v24.2.7
+    image: redpandadata/redpanda:v25.1.9
     command: >-
       redpanda start --mode dev-container --smp 1 --memory 512M
       --kafka-addr internal://0.0.0.0:9092,external://0.0.0.0:19092
@@ -42,14 +42,20 @@ services:
       interval: 3s
       retries: 20
 
-  # Creates topics before anything uses them. 6 partitions = room for up to 6 consumer replicas.
-  # `describe` makes a rerun succeed when the topics already exist.
+  # Turns on consumer-group lag metrics and creates topics (each with a dead-letter topic) before
+  # anything uses them. 6 partitions = room for up to 6 consumer replicas. `describe` makes a
+  # rerun succeed when the topics already exist.
   redpanda-init:
-    image: redpandadata/redpanda:v24.2.7
+    image: redpandadata/redpanda:v25.1.9
+    environment:
+      TOPICS: flow-events features scores flow-events-dlq features-dlq scores-dlq
     entrypoint: ["sh", "-c"]
-    command: >-
-      "rpk topic create flow-events features scores -p 6 -X brokers=redpanda:9092
-      || rpk topic describe flow-events features scores -X brokers=redpanda:9092"
+    command:
+      - |
+        set -e
+        rpk() { command rpk "$$@" -X brokers=redpanda:9092 -X admin.hosts=redpanda:9644; }
+        rpk cluster config set enable_consumer_group_metrics '["group", "partition", "consumer_lag"]'
+        rpk topic create $$TOPICS -p 6 || rpk topic describe $$TOPICS
     networks: [lab]
     depends_on:
       redpanda: { condition: service_healthy }
@@ -128,6 +134,36 @@ services:
       redpanda-init: { condition: service_completed_successfully }
       postgres: { condition: service_healthy }
       enforcer: { condition: service_healthy }
+
+  drift:
+    <<: *python-service
+    command: python -m services.drift.main
+    volumes: ["../../models:/app/models:ro"]
+    networks: [lab]
+    depends_on:
+      redpanda-init: { condition: service_completed_successfully }
+
+  prometheus:
+    image: prom/prometheus:v3.5.0
+    volumes:
+      - ../monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ../monitoring/alerts.yml:/etc/prometheus/alerts.yml:ro
+    ports: ["127.0.0.1:9090:9090"]
+    networks: [lab, default]
+
+  grafana:
+    image: grafana/grafana:12.1.0
+    environment:  # local lab only: no login
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
+      GF_AUTH_DISABLE_LOGIN_FORM: "true"
+    volumes:
+      - ../monitoring/grafana/datasources.yml:/etc/grafana/provisioning/datasources/gatekeeper.yml:ro
+      - ../monitoring/grafana/dashboards.yml:/etc/grafana/provisioning/dashboards/gatekeeper.yml:ro
+      - ../monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    ports: ["127.0.0.1:3000:3000"]
+    networks: [lab, default]
+    depends_on: [prometheus]
 
   # Three replicas = three normal source IPs.
   loadgen:

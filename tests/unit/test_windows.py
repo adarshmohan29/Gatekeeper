@@ -30,9 +30,11 @@ def ev(
     )
 
 
-def deliver(*events: FlowEvent, partition: int = 0, first_offset: int = 0) -> list[Delivered]:
+def deliver(
+    *events: FlowEvent, partition: int = 0, first_offset: int = 0
+) -> list[tuple[Delivered, FlowEvent]]:
     return [
-        Delivered(partition, first_offset + i, e.partition_key, e.to_bytes())
+        (Delivered(partition, first_offset + i, e.partition_key, e.to_bytes()), e)
         for i, e in enumerate(events)
     ]
 

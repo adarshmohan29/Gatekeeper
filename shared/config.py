@@ -28,6 +28,8 @@ class Settings:
     rule_ttl_s: int
     rate_limit_pps: int
     max_score_age_s: int  # older scores are replays of the past: never act on them
+    metrics_port: int  # Prometheus /metrics on every service
+    drift_window: int  # feature vectors in the drift monitor's rolling window
 
     @classmethod
     def from_env(cls) -> Settings:
@@ -54,4 +56,6 @@ class Settings:
             rule_ttl_s=int(env("RULE_TTL_S", "60")),
             rate_limit_pps=int(env("RATE_LIMIT_PPS", "100")),
             max_score_age_s=int(env("MAX_SCORE_AGE_S", "30")),
+            metrics_port=int(env("METRICS_PORT", "9100")),
+            drift_window=int(env("DRIFT_WINDOW", "600")),
         )

@@ -45,23 +45,25 @@ def _offset_key(partition: int) -> str:
     return f"fe:offset:{partition}"
 
 
-def apply(r: Redis, msgs: Sequence[Delivered], ttl_s: int) -> list[FlowEvent]:
+Parsed = Sequence[tuple[Delivered, FlowEvent]]
+
+
+def apply(r: Redis, batch: Parsed, ttl_s: int) -> list[FlowEvent]:
     """Count a batch of flow events exactly once. Returns the events that were new."""
-    if not msgs:
+    if not batch:
         return []
-    fresh = _unapplied(r, msgs)
-    events = [FlowEvent.from_bytes(m.value) for m in fresh]
-    if events:
-        _write(r, aggregate(events), ttl_s, fresh)
-    return events
+    fresh = _unapplied(r, batch)
+    if fresh:
+        _write(r, aggregate(e for _, e in fresh), ttl_s, [m for m, _ in fresh])
+    return [e for _, e in fresh]
 
 
-def _unapplied(r: Redis, msgs: Sequence[Delivered]) -> list[Delivered]:
+def _unapplied(r: Redis, batch: Parsed) -> list[tuple[Delivered, FlowEvent]]:
     """Drop messages whose offset was already counted (replays after a crash)."""
-    parts = sorted({m.partition for m in msgs})
+    parts = sorted({m.partition for m, _ in batch})
     stored = r.mget([_offset_key(p) for p in parts])
     done = {p: int(o) for p, o in zip(parts, stored, strict=True) if o is not None}
-    return [m for m in msgs if m.offset > done.get(m.partition, -1)]
+    return [(m, e) for m, e in batch if m.offset > done.get(m.partition, -1)]
 
 
 def _write(r: Redis, inc: Increments, ttl_s: int, msgs: Sequence[Delivered]) -> None:

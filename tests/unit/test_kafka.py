@@ -6,7 +6,16 @@ from typing import Any, cast
 import pytest
 from confluent_kafka import KafkaError, KafkaException
 
-from shared.kafka import Delivered, batch, producer, stream, tail_consumer
+from shared.events import Score
+from shared.kafka import (
+    DEAD_LETTERS,
+    Delivered,
+    batch,
+    parse_or_dead_letter,
+    producer,
+    stream,
+    tail_consumer,
+)
 
 
 @dataclass
@@ -61,3 +70,28 @@ def test_clients_construct_without_a_broker() -> None:
     # Construction and subscribe are local; nothing connects until the first poll.
     tail_consumer("127.0.0.1:1", "flow-events", "test").close()
     producer("127.0.0.1:1")
+
+
+class FakeProducer:
+    def __init__(self) -> None:
+        self.sent: list[tuple[str, bytes | None, bytes, dict[str, str]]] = []
+
+    def produce(self, topic: str, key: bytes | None, value: bytes, headers: dict[str, str]) -> None:
+        self.sent.append((topic, key, value, headers))
+
+
+def test_malformed_messages_go_to_the_dead_letter_topic() -> None:
+    good = Score.model_validate(
+        {"src_ip": "10.0.0.5", "dst_ip": "10.0.0.2", "window_end": 1, "detector": "t", "score": 0.3}
+    )
+    msgs = [Delivered(0, 1, b"k", good.to_bytes()), Delivered(0, 2, b"k", b"not json")]
+    out = FakeProducer()
+    before = DEAD_LETTERS.labels("scores")._value.get()
+
+    parsed = parse_or_dead_letter(msgs, Score, cast(Any, out), "scores")
+
+    assert parsed == [(msgs[0], good)]
+    ((topic, key, value, headers),) = out.sent
+    assert (topic, key, value) == ("scores-dlq", b"k", b"not json")
+    assert "Invalid JSON" in headers["error"]
+    assert DEAD_LETTERS.labels("scores")._value.get() == before + 1

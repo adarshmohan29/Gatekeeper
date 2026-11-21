@@ -115,18 +115,21 @@ Design rules from the proposal's scalability section (§6b) that shape every pha
 
 ---
 
-## Phase 5a: Observe
+## Phase 5a: Observe ✅
 
 ### Tasks
-- [ ] Prometheus metrics in the feature engine, detector and mitigation controller: consumer lag, score histogram, detection latency, active/total blocks, expired rules, dropped events.
-- [ ] Grafana provisioned from `infra/monitoring/` (datasource and dashboard JSON, no clicking).
-- [ ] Drift detection (KS or PSI) between live features and the training reference; exposed as a metric plus an alert rule.
-- [ ] Consumer-lag alert rule.
-- [ ] Dead-letter topic: malformed events go to `flow-events-dlq` instead of crashing a consumer.
+- [x] Prometheus metrics (`prometheus_client`, port 9100) in the collector, feature engine, detector, mitigation and drift monitor: events published/dropped/counted/replayed, vectors emitted, windows scored/flagged, score histogram, detection latency (window end to score) and mitigation latency (window end to rule), rules applied/expired/active, dead letters, drift. Labelled series are created at 0 so the first increase is visible.
+- [x] Consumer-group lag from the broker (Redpanda upgraded to v25.1.9, `enable_consumer_group_metrics`), so lag shows even when a consumer is down.
+- [x] Prometheus (127.0.0.1:9090) with alert rules: FeatureDrift, ConsumerLag, ServiceDown, EventsDropped, DeadLetters.
+- [x] Grafana (127.0.0.1:3000, no login, local only) provisioned from `infra/monitoring/`: an 8-panel dashboard.
+- [x] Drift monitor (`services/drift`): one-sided PSI over log-scale bins, on per-source features, last 600 vectors vs normal training traffic (reference written by `make train`). Sources the detector flagged in the last 60 s are left out, so attacks don't count as drift; traffic moving where training never was does.
+- [x] Dead-letter topics (`<topic>-dlq`): malformed messages are parked with the parse error in a header, and every consumer keeps running.
+- [x] Unit tests: drift score (stable, narrower, shifted, short attack), dead-letter routing.
+- [x] End-of-phase code review.
 
 ### Gate 5a
-- **Automated:** `tests/gates/test_phase5a.py`. Every `/metrics` endpoint exposes the expected names; the Grafana dashboard loads via the API; a shifted feature distribution fires the drift alert; a malformed message lands in the DLQ while the consumer keeps running.
-- **Manual:** Grafana shows an attack spike, the block, and recovery.
+- **Automated:** `tests/gates/test_phase5a.py`. All 6 scrape targets up and every expected metric exposed; the Grafana dashboard is provisioned and all its queries are valid. A malformed message lands in `flow-events-dlq`, the DeadLetters alert fires, and the feature engine keeps running. Shifted traffic (1.5x, from 192.0.2.0/24) fires FeatureDrift. Stopping the feature engine fires ConsumerLag, which resolves after restart.
+- **Manual:** open http://127.0.0.1:3000, run `make gate N=3`, and watch the attack spike, the rules, and the recovery.
 
 ---
 

@@ -12,7 +12,7 @@ Real-time DDoS detection and automated mitigation platform. Runs entirely locall
 - FastAPI + ONNX Runtime for the detector service
 - XGBoost and PyTorch for training (host only, `[ml]` extra); models are served as ONNX with onnxruntime; KS/PSI for drift
 - nftables in the victim's network namespace for mitigation
-- Prometheus + Grafana
+- Prometheus + Grafana (provisioned from `infra/monitoring/`); `prometheus_client` metrics on port 9100 in every service
 - Docker Compose first; Kubernetes (kind, multi-broker Redpanda, lag-based autoscaling) in Phase 5b
 - Local CI via `make ci` + git pre-commit hook; Helm or Kustomize (Phase 5c)
 - Locust (normal traffic), hping3 (attack traffic)
@@ -36,6 +36,8 @@ Real-time DDoS detection and automated mitigation platform. Runs entirely locall
 - Run the venv's Python (`.venv/bin/python`). Docker is OrbStack.
 - macOS training quirk: torch and XGBoost each bundle OpenMP. `ml/__init__.py` imports XGBoost first, and torch runs single-threaded; otherwise XGBoost segfaults or training deadlocks.
 - Gates judge only what their own run caused (filter by start time), never accumulated history.
+- Metrics: prefix `gatekeeper_`; create labelled counter series at 0 at startup (a series that first appears at 1 hides that increase from `increase()`/alerts).
+- Every consumer parses through `parse_or_dead_letter`: malformed messages go to `<topic>-dlq`, never crash the loop.
 - Log what broke and what was measured in `NOTES.md`.
 - Core logic (feature windows, detector interface, mitigation rules, evaluation) — keep it readable and explain it when asked; the user must be able to defend it.
 

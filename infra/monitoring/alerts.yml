@@ -1,0 +1,30 @@
+groups:
+  - name: gatekeeper
+    rules:
+      - alert: FeatureDrift
+        expr: max(gatekeeper_feature_drift) > 0.25
+        for: 15s
+        annotations:
+          summary: "Live traffic moved where the training data was rare (drift {{ $value | printf \"%.2f\" }}): models may be stale"
+
+      - alert: ConsumerLag
+        expr: max by (redpanda_group) (redpanda_kafka_consumer_group_lag_sum) > 1000
+        for: 15s
+        annotations:
+          summary: "Consumer group {{ $labels.redpanda_group }} is {{ $value }} messages behind"
+
+      - alert: ServiceDown
+        expr: up == 0
+        for: 15s
+        annotations:
+          summary: "{{ $labels.service }}{{ $labels.job }} is not answering scrapes"
+
+      - alert: EventsDropped
+        expr: increase(gatekeeper_events_dropped_total[1m]) > 0
+        annotations:
+          summary: "The collector is shedding load: its producer queue is full"
+
+      - alert: DeadLetters
+        expr: increase(gatekeeper_dead_letters_total[5m]) > 0
+        annotations:
+          summary: "Malformed messages on {{ $labels.topic }} went to its dead-letter topic"
