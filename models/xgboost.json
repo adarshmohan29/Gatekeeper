@@ -1,0 +1,12 @@
+{
+  "features": [
+    "pkt_rate",
+    "byte_rate",
+    "syn_ack_ratio",
+    "dst_distinct_srcs",
+    "dst_src_entropy",
+    "dst_port_entropy"
+  ],
+  "output": "probabilities",
+  "column": 1
+}

@@ -19,7 +19,8 @@ x-python-service: &python-service
   environment:
     KAFKA_BOOTSTRAP: redpanda:9092
     REDIS_URL: redis://redis:6379/0
-    BASELINE_PATH: /app/models/baseline.json
+    MODELS_DIR: /app/models
+    DETECTOR: ${DETECTOR:-threshold}  # threshold | xgboost | autoencoder
     POSTGRES_DSN: postgresql://gatekeeper:gatekeeper@postgres/gatekeeper
     ENFORCER_URL: http://victim:9000
     ENFORCER_TOKEN: ${ENFORCER_TOKEN:-local-dev-token}  # set a real one outside the lab

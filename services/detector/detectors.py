@@ -1,4 +1,4 @@
-"""Detector interface and the threshold baseline."""
+"""Detector interface, the threshold baseline, and ONNX-served ML detectors."""
 
 from __future__ import annotations
 
@@ -6,12 +6,15 @@ import json
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Protocol
+from typing import Any, Protocol
+
+import numpy as np
+import onnxruntime as ort
 
 from shared.events import FeatureVector
 
 # Per-source features. Destination entropy drops for every source talking to an attacked
-# destination, so it can't say *which* source to block; it is kept for the Phase 4 models.
+# destination, so it can't say *which* source to block.
 SCORED_FEATURES = ("pkt_rate", "byte_rate", "syn_ack_ratio")
 
 
@@ -24,6 +27,10 @@ class Detector(Protocol):
         ...
 
 
+def p99(values: Sequence[float]) -> float:
+    return sorted(values)[int(0.99 * (len(values) - 1))]
+
+
 @dataclass(frozen=True)
 class ThresholdDetector:
     """Learns an upper bound per feature from normal traffic; 0.5 means "at the bound"."""
@@ -33,9 +40,6 @@ class ThresholdDetector:
 
     @classmethod
     def fit(cls, normal: Sequence[FeatureVector], margin: float = 2.0) -> ThresholdDetector:
-        def p99(values: list[float]) -> float:
-            return sorted(values)[int(0.99 * (len(values) - 1))]
-
         # The 1.0 floor stops a feature that was always ~0 (e.g. SYN/ACK under keep-alive)
         # from getting a zero-width range that any packet would exceed.
         return cls(
@@ -54,7 +58,47 @@ class ThresholdDetector:
         return cls(json.loads(path.read_text()))
 
 
-def load_detector(name: str, baseline_path: Path) -> Detector:
-    if name != "threshold":
-        raise ValueError(f"unknown detector {name!r}")
-    return ThresholdDetector.load(baseline_path)
+@dataclass(frozen=True)
+class OnnxDetector:
+    """An exported model plus metadata saying which features it takes and how to read it.
+
+    Classifiers output P(attack) in `column`. Autoencoders output a reconstruction error,
+    scaled so that 0.5 means "at the threshold", like the baseline.
+    """
+
+    name: str
+    session: ort.InferenceSession
+    features: tuple[str, ...]
+    output: str
+    column: int | None = None
+    threshold: float | None = None
+
+    @classmethod
+    def load(cls, name: str, models_dir: Path) -> OnnxDetector:
+        meta: dict[str, Any] = json.loads((models_dir / f"{name}.json").read_text())
+        opts = ort.SessionOptions()
+        opts.intra_op_num_threads = 1  # one core per replica; scale out with replicas instead
+        session = ort.InferenceSession(str(models_dir / f"{name}.onnx"), opts)
+        return cls(
+            name,
+            session,
+            tuple(meta["features"]),
+            meta["output"],
+            meta.get("column"),
+            meta.get("threshold"),
+        )
+
+    def score(self, features: FeatureVector) -> float:
+        x = np.array([[getattr(features, f) for f in self.features]], dtype=np.float32)
+        (out,) = self.session.run([self.output], {"input": x})
+        if self.threshold is None:
+            return float(out[0][self.column])
+        return min(1.0, 0.5 * float(out[0]) / self.threshold)
+
+
+def load_detector(name: str, models_dir: Path) -> Detector:
+    if name == "threshold":
+        return ThresholdDetector.load(models_dir / "baseline.json")
+    if (models_dir / f"{name}.onnx").exists():
+        return OnnxDetector.load(name, models_dir)
+    raise ValueError(f"unknown detector {name!r}: no {name}.onnx in {models_dir}")

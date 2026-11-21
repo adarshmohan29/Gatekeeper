@@ -97,22 +97,21 @@ Design rules from the proposal's scalability section (§6b) that shape every pha
 
 ---
 
-## Phase 4: Compare
+## Phase 4: Compare ✅
 
 ### Tasks
-- [ ] Dataset generator: scripted sessions with randomized attack rate, duration, packet size and source count; labels come from the schedule.
-  - [ ] Hard cases: flash crowd, slow ramp, mixed floods.
-  - [ ] Feature vectors, labels, `session_id` and `attack_type` saved to Parquet under `data/`.
-- [ ] Split by session; hold out one whole attack type (e.g. train without UDP floods, test on them).
-- [ ] XGBoost model exported to ONNX.
-- [ ] Autoencoder (PyTorch, normal traffic only) exported to ONNX; threshold from validation reconstruction error.
-- [ ] `OnnxDetector` behind the same `Detector` interface; models chosen by config only.
-- [ ] Evaluation harness replays the same traffic through each detector and records: detection delay, false-positive rate (including flash crowd), time to mitigation, throughput (windows/s), CPU and memory, and results on the held-out type and slow ramp.
-- [ ] Unit tests: no session leakage in the split; ONNX output matches the native model within tolerance.
+- [x] Dataset generator (`make dataset`, ~20 min): 28 scripted sessions against the live stack, mitigation paused. SYN, HTTP and mixed floods; UDP floods; flash crowds (legitimate Locust bursts); slow-ramp SYN floods. Randomized rate, payload size, source count (1-3) and duration. Labels come from the schedule (attacker IPs 172.30.0.200-209). Saved to `data/dataset.parquet` with `session_id`, `kind`, `role`, `label`.
+- [x] Split by session (30% of seen-kind sessions to test); UDP, flash and ramp are held out of training entirely.
+- [x] XGBoost on all six features, exported to ONNX (onnxmltools).
+- [x] Autoencoder (PyTorch) on normal traffic, per-source features; log1p and standardization inside the graph; threshold 2 × p99 of the training error; exported with the current torch.export-based ONNX exporter.
+- [x] `OnnxDetector` behind the same `Detector` protocol; `DETECTOR=threshold|xgboost|autoencoder` picks the model from `MODELS_DIR`. The threshold baseline is refit on the same training split (`make train`).
+- [x] Evaluation harness (`make evaluate`): every detector scores the same recorded test vectors, each in its own process; writes `docs/results.md` (false-positive rates incl. flash crowd, detection rate and delay for seen/UDP/ramp, time to mitigation, throughput, CPU per window, peak memory).
+- [x] Unit tests: schedule, labels, leak-free split, Parquet round trip, metrics, ONNX output equals native output (XGBoost and autoencoder), served models separate attacks.
+- [x] End-of-phase code review.
 
 ### Gate 4: results table for all three detectors
-- **Automated:** `tests/gates/test_phase4.py`. No `session_id` appears in both train and test. All three detectors load by config and score the same replay. `docs/results.md` has a row per detector with every metric filled.
-- **Manual:** `docs/results.md` includes at least one hard case. If the baseline wins, record it: that is a result.
+- **Automated:** `tests/gates/test_phase4.py`. No `session_id` in both train and test, and held-out kinds only in test. All three detectors load by name and score the same replay. `docs/results.md` has a column per detector, every cell filled, and rows for both hard cases.
+- **Manual:** read `docs/results.md`; run the live pipeline with `DETECTOR=xgboost` (and `autoencoder`) and check that Gate 2 still flags the flood. If the baseline wins, record it: that is a result.
 
 ---
 

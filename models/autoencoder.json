@@ -1,0 +1,9 @@
+{
+  "features": [
+    "pkt_rate",
+    "byte_rate",
+    "syn_ack_ratio"
+  ],
+  "output": "error",
+  "threshold": 0.0605042427778244
+}

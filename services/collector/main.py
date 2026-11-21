@@ -39,7 +39,10 @@ def main() -> None:
     try:
         while True:
             frame, addr = sock.recvfrom(65535)
-            if addr[2] == socket.PACKET_OUTGOING:
+            # Only frames addressed to the victim. Not PACKET_OUTGOING (its own sends), and not
+            # PACKET_OTHERHOST: when a peer's container is gone, the bridge floods the victim's
+            # own retransmissions back to it, which looked like traffic *from* the victim.
+            if addr[2] != socket.PACKET_HOST:
                 continue
             event = parse_frame(frame, time.time())
             if event is None or not control_ports.isdisjoint((event.src_port, event.dst_port)):

@@ -51,7 +51,7 @@ def run(detector: Detector) -> None:
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     logging.basicConfig(level=logging.INFO)
     # Load before serving: a missing or bad baseline fails startup instead of a silent thread.
-    detector = load_detector(settings.detector, Path(settings.baseline_path))
+    detector = load_detector(settings.detector, Path(settings.models_dir))
     app.state.worker = threading.Thread(target=run, args=(detector,))
     app.state.worker.start()
     yield

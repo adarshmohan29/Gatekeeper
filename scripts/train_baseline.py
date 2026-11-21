@@ -25,7 +25,7 @@ def main() -> None:
     if not normal:
         sys.exit("no feature vectors received: is the stack up (`make up`)?")
     detector = ThresholdDetector.fit(normal)
-    detector.save(Path(settings.baseline_path))
+    detector.save(Path(settings.models_dir) / "baseline.json")
     print(f"fitted on {len(normal)} vectors: {detector.bounds}")
 
 

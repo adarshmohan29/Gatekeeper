@@ -10,7 +10,7 @@ Real-time DDoS detection and automated mitigation platform. Runs entirely locall
 - Redpanda (Kafka API) for streaming; plain Python consumers
 - Redis (sliding-window state, TTL expiry); PostgreSQL (alerts + actions log)
 - FastAPI + ONNX Runtime for the detector service
-- scikit-learn, XGBoost, PyTorch (autoencoder → ONNX); KS/PSI for drift
+- XGBoost and PyTorch for training (host only, `[ml]` extra); models are served as ONNX with onnxruntime; KS/PSI for drift
 - nftables in the victim's network namespace for mitigation
 - Prometheus + Grafana
 - Docker Compose first; Kubernetes (kind, multi-broker Redpanda, lag-based autoscaling) in Phase 5b
@@ -34,6 +34,8 @@ Real-time DDoS detection and automated mitigation platform. Runs entirely locall
 - Pure logic lives in testable modules; `services/*/main.py` is thin I/O wiring, excluded from unit coverage and exercised by the gate tests.
 - Gate tests live in `tests/gates/test_phase<N>.py` (N = 0–4, 5a, 5b, 5c); run with `make gate N=<N>`.
 - Run the venv's Python (`.venv/bin/python`). Docker is OrbStack.
+- macOS training quirk: torch and XGBoost each bundle OpenMP. `ml/__init__.py` imports XGBoost first, and torch runs single-threaded; otherwise XGBoost segfaults or training deadlocks.
+- Gates judge only what their own run caused (filter by start time), never accumulated history.
 - Log what broke and what was measured in `NOTES.md`.
 - Core logic (feature windows, detector interface, mitigation rules, evaluation) — keep it readable and explain it when asked; the user must be able to defend it.
 

@@ -43,9 +43,10 @@ def test_worst_feature_decides() -> None:
 
 
 def test_save_load_round_trip(tmp_path: Path) -> None:
-    path = tmp_path / "baseline.json"
-    ThresholdDetector({"pkt_rate": 1.0, "byte_rate": 2.0, "syn_ack_ratio": 3.0}).save(path)
-    loaded = load_detector("threshold", path)
+    ThresholdDetector({"pkt_rate": 1.0, "byte_rate": 2.0, "syn_ack_ratio": 3.0}).save(
+        tmp_path / "baseline.json"
+    )
+    loaded = load_detector("threshold", tmp_path)
     assert isinstance(loaded, ThresholdDetector)
     assert loaded.bounds == {"pkt_rate": 1.0, "byte_rate": 2.0, "syn_ack_ratio": 3.0}
     assert loaded.name == "threshold"
@@ -53,4 +54,4 @@ def test_save_load_round_trip(tmp_path: Path) -> None:
 
 def test_unknown_detector() -> None:
     with pytest.raises(ValueError, match="unknown detector"):
-        load_detector("magic", Path("unused"))
+        load_detector("magic", Path("models"))

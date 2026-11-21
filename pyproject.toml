@@ -14,10 +14,15 @@ dependencies = [
     "fastapi>=0.110",
     "uvicorn>=0.29",
     "psycopg[binary]>=3.1",
+    "numpy>=1.26",
+    "onnxruntime>=1.18",
 ]
 
 [project.optional-dependencies]
+# Training only (host): the services serve exported ONNX models and don't need these.
+ml = ["xgboost>=2", "onnxmltools>=1.12", "torch>=2.6", "onnxscript>=0.2", "pyarrow>=15"]
 dev = [
+    "gatekeeper[ml]",
     "pytest>=8",
     "ruff>=0.5",
     "mypy>=1.10",
@@ -26,7 +31,7 @@ dev = [
 ]
 
 [tool.setuptools.packages.find]
-include = ["shared*", "services*"]
+include = ["shared*", "services*", "ml*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests/unit"]
@@ -46,7 +51,7 @@ max-complexity = 8
 "tests/**" = ["PLR2004"]  # magic numbers are fine in assertions
 
 [tool.coverage.run]
-source = ["shared", "services"]
+source = ["shared", "services", "ml"]
 # I/O entrypoints are kept thin and exercised by the gate tests instead.
 omit = ["services/*/main.py", "services/loadgen/*"]
 branch = true
@@ -59,6 +64,10 @@ skip_empty = true
 python_version = "3.11"
 strict = true
 plugins = ["pydantic.mypy"]
-files = ["shared", "services", "scripts", "tests"]
+files = ["shared", "services", "ml", "scripts", "tests"]
 exclude = ["services/loadgen/"]
 platform = "linux"  # services run in Linux containers (AF_PACKET)
+
+[[tool.mypy.overrides]]  # no type information shipped
+module = ["onnxmltools.*", "onnxruntime.*", "pyarrow.*", "xgboost.*"]
+ignore_missing_imports = true

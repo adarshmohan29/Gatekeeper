@@ -1,7 +1,7 @@
 PY      ?= .venv/bin/python
 COMPOSE ?= docker compose -f infra/compose/docker-compose.yml
 
-.PHONY: venv up down logs test lint gate baseline
+.PHONY: venv up down logs test lint gate baseline dataset train evaluate
 
 venv:
 	python3 -m venv .venv
@@ -33,3 +33,13 @@ gate:
 # Fit the detector baseline on normal traffic (stack up, no attack running).
 baseline:
 	$(PY) scripts/train_baseline.py --seconds 60
+
+# Phase 4: labelled dataset from the live stack (~20 min), train all detectors, compare them.
+dataset:
+	$(PY) scripts/generate_dataset.py
+
+train:
+	$(PY) scripts/train_models.py
+
+evaluate:
+	$(PY) scripts/evaluate.py

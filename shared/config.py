@@ -17,7 +17,7 @@ class Settings:
     redis_url: str
     window_s: int
     detector: str
-    baseline_path: str
+    models_dir: str  # baseline.json, <name>.onnx + <name>.json
     score_threshold: float
     postgres_dsn: str
     enforcer_url: str
@@ -41,7 +41,7 @@ class Settings:
             redis_url=env("REDIS_URL", "redis://localhost:6379/0"),
             window_s=int(env("WINDOW_S", "10")),
             detector=env("DETECTOR", "threshold"),
-            baseline_path=env("BASELINE_PATH", "models/baseline.json"),
+            models_dir=env("MODELS_DIR", "models"),
             score_threshold=float(env("SCORE_THRESHOLD", "0.5")),
             postgres_dsn=env(
                 "POSTGRES_DSN", "postgresql://gatekeeper:gatekeeper@localhost/gatekeeper"

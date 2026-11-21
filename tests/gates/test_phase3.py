@@ -151,6 +151,7 @@ def test_flood_blocked_normal_untouched() -> None:
         ).split()
     )
     reqs_before, fails_before = locust_totals()
+    (since,) = sql("SELECT now()")  # judge only what this run caused, not earlier history
 
     first_rule_s, blocked_s, attacker_flags = watch_attack(settings, protected)
 
@@ -174,10 +175,15 @@ def test_flood_blocked_normal_untouched() -> None:
     time.sleep(3)
     assert sql("SELECT count(*) FROM actions") == actions, "replayed scores created actions"
 
-    by_source = sql("SELECT host(src_ip) || ' ' || action FROM actions ORDER BY id")
+    by_source = sql(
+        f"SELECT host(src_ip) || ' ' || action FROM actions WHERE ts > '{since}' ORDER BY id"
+    )
     assert f"{ATTACKER} rate_limit" in by_source and f"{ATTACKER} block" in by_source
     assert all(a.startswith(f"{ATTACKER} ") for a in by_source), by_source
-    assert int(sql(f"SELECT count(*) FROM alerts WHERE src_ip = '{ALLOWLISTED}'")[0]) > 0
+    allowlisted_alerts = sql(
+        f"SELECT count(*) FROM alerts WHERE src_ip = '{ALLOWLISTED}' AND ts > '{since}'"
+    )
+    assert int(allowlisted_alerts[0]) > 0, "the allowlisted flood should still be detected"
 
     # Expiry: the kernel drops the rules and the controller records it.
     wait_for_no_rules()

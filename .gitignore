@@ -8,10 +8,12 @@ __pycache__/
 .ruff_cache/
 .coverage
 
-# Data and model artifacts (commit deliberately with `git add -f` if needed)
-data/
-*.parquet
+# Data and model artifacts. The Phase 4 dataset and models are small (~100 KB) and
+# committed, so results and Gate 4 reproduce without a 20-minute regeneration.
+data/*
+!data/dataset.parquet
 *.onnx
+!models/*.onnx
 mlruns/
 
 # Env / editor / OS
