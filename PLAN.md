@@ -54,7 +54,7 @@ Design rules from the proposal's scalability section (§6b) that shape every pha
   - [x] per source: packets/s, bytes/s, SYN-to-ACK ratio (`syn / (ack + 1)`)
   - [x] per destination (the one the source hit most): distinct source count, source entropy, destination-port entropy
 - [x] All window state in Redis (hash buckets, `HINCRBY`, TTL = window + 5 s), so replicas add up instead of overwriting. Window 10 s, step 1 s (`WINDOW_S`).
-- [x] At-least-once: offsets are committed after the Redis write. A replay double-counts the uncommitted batch; documented, not deduplicated (see `NOTES.md`).
+- [x] Exactly-once counting: Kafka offsets are committed after the Redis write; the last counted offset per partition is stored in the same Redis transaction as the counters, and replays are skipped.
 - [x] Clean shutdown: SIGTERM closes consumers (they leave the group immediately) and flushes producers. Session timeout 10 s for crashed members.
 - [x] Feature vectors published to `features`, keyed by source IP.
 - [x] `detector` (FastAPI + Kafka worker thread): `Detector` protocol (`name`, `score(features) -> float`), chosen by `DETECTOR`, baseline loaded at startup (fail fast), publishes to `scores`, logs `ATTACK` above `SCORE_THRESHOLD`, `/healthz`.

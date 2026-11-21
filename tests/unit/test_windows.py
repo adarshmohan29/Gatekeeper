@@ -3,12 +3,14 @@ import math
 import fakeredis
 import pytest
 
-from services.feature_engine.windows import aggregate, entropy, read_features, write
+from services.feature_engine.windows import aggregate, apply, entropy, read_features
 from shared.events import FlowEvent, Proto, TcpFlags
+from shared.kafka import Delivered
 
 VICTIM = "10.0.0.2"
 WINDOW = 10
 END = 1000  # window covers seconds 990..999
+TTL = 60
 
 
 def ev(
@@ -26,6 +28,19 @@ def ev(
             "pkt_len": size,
         }
     )
+
+
+def deliver(*events: FlowEvent, partition: int = 0, first_offset: int = 0) -> list[Delivered]:
+    return [
+        Delivered(partition, first_offset + i, e.partition_key, e.to_bytes())
+        for i, e in enumerate(events)
+    ]
+
+
+def rate(r: fakeredis.FakeRedis, src: str = "10.0.0.5") -> float:
+    fv = read_features(r, src, END, WINDOW)
+    assert fv is not None
+    return fv.pkt_rate
 
 
 @pytest.fixture
@@ -51,7 +66,7 @@ def test_entropy(counts: list[int], bits: float) -> None:
 def test_features_over_window(r: fakeredis.FakeRedis) -> None:
     events = [ev("10.0.0.5", 995, TcpFlags.SYN, port=p) for p in (80, 81)]
     events += [ev("10.0.0.6", 999), ev("10.0.0.6", 989), ev("10.0.0.6", 1000)]  # last two outside
-    write(r, aggregate(events), ttl_s=60)
+    apply(r, deliver(*events), TTL)
 
     fv = read_features(r, "10.0.0.5", END, WINDOW)
     assert fv is not None
@@ -61,23 +76,46 @@ def test_features_over_window(r: fakeredis.FakeRedis) -> None:
     assert fv.dst_distinct_srcs == 2
     assert math.isclose(fv.dst_src_entropy, entropy([2, 1]))  # .5 sent 2 packets, .6 sent 1
     assert math.isclose(fv.dst_port_entropy, entropy([2, 1]))  # port 80 twice, 81 once
-
-    other = read_features(r, "10.0.0.6", END, WINDOW)
-    assert other is not None
-    assert other.pkt_rate == 0.1  # only the packet at 999 is inside the window
+    assert rate(r, "10.0.0.6") == 0.1  # only the packet at 999 is inside the window
 
 
-def test_concurrent_writers_add_up(r: fakeredis.FakeRedis) -> None:
-    # Two replicas writing the same bucket: HINCRBY makes the counts add, not overwrite.
-    write(r, aggregate([ev("10.0.0.5", 995)]), ttl_s=60)
-    write(r, aggregate([ev("10.0.0.5", 995)]), ttl_s=60)
-    fv = read_features(r, "10.0.0.5", END, WINDOW)
-    assert fv is not None
-    assert fv.pkt_rate == 0.2
+def test_replicas_on_different_partitions_add_up(r: fakeredis.FakeRedis) -> None:
+    # Same bucket written by two replicas: HINCRBY makes the counts add, not overwrite.
+    apply(r, deliver(ev("10.0.0.5", 995), partition=0), TTL)
+    apply(r, deliver(ev("10.0.0.5", 995), partition=1), TTL)
+    assert rate(r) == 0.2
+
+
+def test_replayed_batch_is_counted_once(r: fakeredis.FakeRedis) -> None:
+    # Crash after the Redis write but before the Kafka commit: the batch is delivered again.
+    msgs = deliver(ev("10.0.0.5", 995), ev("10.0.0.5", 996))
+    assert len(apply(r, msgs, TTL)) == 2
+    assert apply(r, msgs, TTL) == []
+    assert rate(r) == 0.2
+
+
+def test_partly_replayed_batch_counts_only_new_messages(r: fakeredis.FakeRedis) -> None:
+    apply(r, deliver(ev("10.0.0.5", 995), ev("10.0.0.5", 995)), TTL)  # offsets 0, 1
+    third = ev("10.0.0.5", 996)
+    new = apply(r, deliver(ev("10.0.0.5", 995), third, first_offset=1), TTL)  # offsets 1, 2
+    assert new == [third]
+    assert rate(r) == 0.3
+
+
+def test_partitions_are_tracked_separately(r: fakeredis.FakeRedis) -> None:
+    apply(r, deliver(ev("10.0.0.5", 995), partition=0, first_offset=5), TTL)
+    # A lower offset on another partition is new data, not a replay.
+    assert len(apply(r, deliver(ev("10.0.0.5", 995), partition=1, first_offset=2), TTL)) == 1
+    assert (r.get("fe:offset:0"), r.get("fe:offset:1")) == ("5", "2")
+
+
+def test_empty_batch_is_a_no_op(r: fakeredis.FakeRedis) -> None:
+    assert apply(r, [], TTL) == []
+    assert r.dbsize() == 0
 
 
 def test_buckets_expire(r: fakeredis.FakeRedis) -> None:
-    write(r, aggregate([ev("10.0.0.5", 995)]), ttl_s=15)
+    apply(r, deliver(ev("10.0.0.5", 995)), ttl_s=15)
     assert 0 < r.ttl("s:10.0.0.5:995") <= 15
 
 

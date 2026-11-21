@@ -18,7 +18,7 @@ def main() -> None:
     settings = Settings.from_env()
     consumer = tail_consumer(settings.kafka_bootstrap, settings.features_topic, "train")
     try:
-        normal = [FeatureVector.from_bytes(v) for _, v in stream(consumer, args.seconds)]
+        normal = [FeatureVector.from_bytes(m.value) for m in stream(consumer, args.seconds)]
     finally:
         consumer.close()
 

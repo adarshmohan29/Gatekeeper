@@ -22,7 +22,7 @@ def test_flow_events_reach_kafka() -> None:
         consumer.close()
 
     assert len(msgs) == WANTED, f"only {len(msgs)} events in {TIMEOUT_S}s"
-    events = [FlowEvent.from_bytes(value) for _, value in msgs]
-    assert all(key == e.partition_key for (key, _), e in zip(msgs, events, strict=True))
+    events = [FlowEvent.from_bytes(m.value) for m in msgs]
+    assert all(m.key == e.partition_key for m, e in zip(msgs, events, strict=True))
     # Only inbound HTTP: proves outgoing packets and our own Kafka traffic are filtered out.
     assert all(e.dst_port == 80 for e in events)

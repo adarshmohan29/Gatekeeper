@@ -30,7 +30,7 @@ def test_flood_is_flagged() -> None:
     threshold = settings.score_threshold
     consumer = tail_consumer(settings.kafka_bootstrap, settings.scores_topic, "gate2")
     try:
-        normal = [Score.from_bytes(v) for _, v in stream(consumer, NORMAL_S)]
+        normal = [Score.from_bytes(m.value) for m in stream(consumer, NORMAL_S)]
 
         attack = subprocess.Popen(
             [*COMPOSE, "run", "--rm", "attacker", "syn", str(ATTACK_S)],
@@ -39,8 +39,8 @@ def test_flood_is_flagged() -> None:
         start = time.monotonic()
         try:
             during = [
-                (time.monotonic() - start, Score.from_bytes(v))
-                for _, v in stream(consumer, OBSERVE_S)
+                (time.monotonic() - start, Score.from_bytes(m.value))
+                for m in stream(consumer, OBSERVE_S)
             ]
         finally:
             attack.wait(timeout=ATTACK_S + 30)

@@ -1,7 +1,7 @@
 """Consume flow events, keep windows in Redis, emit one feature vector per active source per second.
 
-At-least-once: offsets are committed only after the batch is in Redis. A crash replays at most
-the uncommitted batch, which double-counts those packets in their buckets (see NOTES.md).
+Kafka offsets are committed after the Redis write; replays of an uncommitted batch are
+skipped by offset, so each packet is counted exactly once (see windows.py).
 """
 
 from __future__ import annotations
@@ -13,10 +13,9 @@ import time
 
 from redis import Redis
 
-from services.feature_engine.windows import aggregate, read_features, write
+from services.feature_engine.windows import apply, read_features
 from shared.config import Settings
-from shared.events import FlowEvent
-from shared.kafka import batch_values, group_consumer, producer
+from shared.kafka import batch, group_consumer, producer
 
 TTL_SLACK_S = 5  # keep buckets a little longer than the window so late reads still see them
 
@@ -35,12 +34,10 @@ def main() -> None:
 
     try:
         while True:
-            msgs = consumer.consume(1000, timeout=0.2)
-            events = [FlowEvent.from_bytes(v) for v in batch_values(msgs)]
-            if events:
-                write(r, aggregate(events), settings.window_s + TTL_SLACK_S)
-                active.update(str(e.src_ip) for e in events)
+            msgs = batch(consumer.consume(1000, timeout=0.2))
             if msgs:
+                events = apply(r, msgs, settings.window_s + TTL_SLACK_S)
+                active.update(str(e.src_ip) for e in events)
                 consumer.commit(asynchronous=False)
 
             if time.time() >= next_tick:

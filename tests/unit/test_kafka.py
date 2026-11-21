@@ -6,7 +6,7 @@ from typing import Any, cast
 import pytest
 from confluent_kafka import KafkaError, KafkaException
 
-from shared.kafka import batch_values, producer, stream, tail_consumer
+from shared.kafka import Delivered, batch, producer, stream, tail_consumer
 
 
 @dataclass
@@ -23,6 +23,12 @@ class FakeMsg:
     def key(self) -> bytes:
         return b"k"
 
+    def partition(self) -> int:
+        return 3
+
+    def offset(self) -> int:
+        return 42
+
 
 TRANSIENT = KafkaError(KafkaError._TRANSPORT)
 FATAL = KafkaError(KafkaError._FATAL, fatal=True)
@@ -36,19 +42,19 @@ class FakeConsumer:
         return self.msgs.pop(0) if self.msgs else None
 
 
-def test_batch_values_skips_transient_errors_and_empty_values() -> None:
+def test_batch_skips_transient_errors_and_empty_values() -> None:
     msgs = [FakeMsg(b"a"), FakeMsg(err=TRANSIENT), FakeMsg(None), FakeMsg(b"b")]
-    assert batch_values(cast(Any, msgs)) == [b"a", b"b"]
+    assert batch(cast(Any, msgs)) == [Delivered(3, 42, b"k", b"a"), Delivered(3, 42, b"k", b"b")]
 
 
 def test_fatal_error_raises() -> None:
     with pytest.raises(KafkaException):
-        batch_values(cast(Any, [FakeMsg(err=FATAL)]))
+        batch(cast(Any, [FakeMsg(err=FATAL)]))
 
 
 def test_stream_yields_until_deadline() -> None:
     consumer = FakeConsumer([FakeMsg(b"a"), None, FakeMsg(err=TRANSIENT), FakeMsg(b"b")])
-    assert list(stream(cast(Any, consumer), seconds=0.2)) == [(b"k", b"a"), (b"k", b"b")]
+    assert [m.value for m in stream(cast(Any, consumer), seconds=0.2)] == [b"a", b"b"]
 
 
 def test_clients_construct_without_a_broker() -> None:

@@ -16,7 +16,7 @@ from fastapi import FastAPI, HTTPException, Request
 from services.detector.detectors import Detector, load_detector
 from shared.config import Settings
 from shared.events import FeatureVector, Score
-from shared.kafka import batch_values, group_consumer, producer
+from shared.kafka import batch, group_consumer, producer
 
 log = logging.getLogger("detector")
 settings = Settings.from_env()
@@ -29,7 +29,7 @@ def run(detector: Detector) -> None:
     try:
         while not stop.is_set():
             msgs = consumer.consume(500, timeout=0.5)
-            for fv in map(FeatureVector.from_bytes, batch_values(msgs)):
+            for fv in (FeatureVector.from_bytes(m.value) for m in batch(msgs)):
                 s = Score(
                     src_ip=fv.src_ip,
                     dst_ip=fv.dst_ip,

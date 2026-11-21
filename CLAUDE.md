@@ -26,7 +26,7 @@ Real-time DDoS detection and automated mitigation platform. Runs entirely locall
 - Shared Kafka helpers live in `shared/kafka.py`; don't duplicate client config.
 - Config via env vars; no hardcoded hosts/ports.
 - Consumers hold no state in memory: all window state lives in Redis so services scale as consumer-group replicas.
-- At-least-once: commit offsets after processing. Effects must be idempotent; blocking twice is harmless.
+- At-least-once: commit offsets after processing. Effects must be idempotent; blocking twice is harmless. Where an effect isn't naturally idempotent (counters), store the last applied offset per partition in the same transaction and skip replays (see `services/feature_engine/windows.py`).
 - Under overload, drop and count; never crash or block on an unbounded queue.
 - On SIGTERM: close consumers (leave the group immediately) and flush producers. Never leave a stale group member.
 - Python services share one image (`services/Dockerfile`); compose picks the entrypoint.
