@@ -14,15 +14,19 @@ and a replayed message (crash after the Redis write, before the Kafka commit) is
 from __future__ import annotations
 
 import math
+import time
 from collections import Counter, defaultdict
-from collections.abc import Iterable, Sequence
+from collections.abc import Callable, Iterable, Sequence
+from typing import TypeVar
 
 from redis import Redis
+from redis.exceptions import ConnectionError as RedisDown
 
 from shared.events import FeatureVector, FlowEvent, TcpFlags
 from shared.kafka import Delivered
 
 Increments = dict[str, Counter[str]]
+T = TypeVar("T")
 
 
 def aggregate(events: Iterable[FlowEvent]) -> Increments:
@@ -77,6 +81,24 @@ def _write(r: Redis, inc: Increments, ttl_s: int, msgs: Sequence[Delivered]) -> 
     for partition, offset in {m.partition: m.offset for m in msgs}.items():
         pipe.set(_offset_key(partition), offset)
     pipe.execute()
+
+
+def while_redis_down(fn: Callable[[], T], timeout_s: float, pause_s: float = 0.5) -> T:
+    """Call `fn` until Redis answers, for up to `timeout_s` (then the error propagates).
+
+    A Redis restart resets every connection; crashing on that adds a pod restart with
+    backoff. Retrying here, not in the client, is what keeps counting exactly-once:
+    the client would resend a MULTI/EXEC whose reply was lost, while `apply` re-reads
+    the stored offsets first.
+    """
+    deadline = time.monotonic() + timeout_s
+    while True:
+        try:
+            return fn()
+        except RedisDown:
+            if time.monotonic() >= deadline:
+                raise
+            time.sleep(pause_s)
 
 
 def entropy(counts: Iterable[int]) -> float:

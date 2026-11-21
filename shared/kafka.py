@@ -75,6 +75,7 @@ TRANSIENT_COMMIT_ERRORS = frozenset(
         KafkaError.ILLEGAL_GENERATION,
         KafkaError.UNKNOWN_MEMBER_ID,
         KafkaError._TRANSPORT,
+        KafkaError._ASSIGNMENT_LOST,  # session timed out (e.g. host paused); rejoin follows
     }
 )
 

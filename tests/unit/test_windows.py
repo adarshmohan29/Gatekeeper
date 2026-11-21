@@ -2,8 +2,15 @@ import math
 
 import fakeredis
 import pytest
+from redis.exceptions import ConnectionError as RedisDown
 
-from services.feature_engine.windows import aggregate, apply, entropy, read_features
+from services.feature_engine.windows import (
+    aggregate,
+    apply,
+    entropy,
+    read_features,
+    while_redis_down,
+)
 from shared.events import FlowEvent, Proto, TcpFlags
 from shared.kafka import Delivered
 
@@ -136,3 +143,28 @@ def test_many_sources_and_destinations_in_one_read(r: fakeredis.FakeRedis) -> No
     assert (by_src["10.0.0.5"].pkt_rate, by_src["10.0.0.6"].pkt_rate) == (0.2, 0.1)
     assert by_src["10.0.0.5"].dst_distinct_srcs == by_src["10.0.0.6"].dst_distinct_srcs == 2
     assert (str(by_src["10.0.0.7"].dst_ip), by_src["10.0.0.7"].dst_distinct_srcs) == (other, 1)
+
+
+def test_retry_after_lost_reply_counts_once(r: fakeredis.FakeRedis) -> None:
+    # EXEC committed, then the connection reset before the reply: the retry must not recount.
+    msgs = deliver(ev("10.0.0.5", 995), ev("10.0.0.5", 996))
+    calls = 0
+
+    def apply_then_lose_reply() -> list[FlowEvent]:
+        nonlocal calls
+        calls += 1
+        events = apply(r, msgs, TTL)
+        if calls == 1:
+            raise RedisDown("Connection reset by peer")
+        return events
+
+    assert while_redis_down(apply_then_lose_reply, timeout_s=5, pause_s=0) == []
+    assert rate(r) == 0.2
+
+
+def test_redis_down_past_the_deadline_raises() -> None:
+    def down() -> None:
+        raise RedisDown("Connection refused")
+
+    with pytest.raises(RedisDown):
+        while_redis_down(down, timeout_s=0, pause_s=0)

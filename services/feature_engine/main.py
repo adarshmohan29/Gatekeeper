@@ -9,15 +9,17 @@ from __future__ import annotations
 import signal
 import sys
 import time
+from functools import partial
 
 from prometheus_client import Counter, start_http_server
 from redis import Redis
 
-from services.feature_engine.windows import apply, read_features
+from services.feature_engine.windows import apply, read_features, while_redis_down
 from shared.config import Settings
 from shared.events import FlowEvent
 from shared.kafka import batch, commit, group_consumer, parse_or_dead_letter, producer
 
+REDIS_WAIT_S = 30  # ride out a Redis restart; well under the consumer's max poll interval
 TTL_SLACK_S = 5  # keep buckets a little longer than the window so late reads still see them
 COUNTED = Counter("gatekeeper_events_counted_total", "Flow events counted into Redis windows")
 REPLAYED = Counter("gatekeeper_events_replayed_total", "Replayed flow events skipped by offset")
@@ -41,14 +43,17 @@ def main() -> None:
             msgs = batch(consumer.consume(1000, timeout=0.2))
             if msgs:
                 parsed = parse_or_dead_letter(msgs, FlowEvent, out, settings.flow_topic)
-                events = apply(r, parsed, settings.window_s + TTL_SLACK_S)
+                ttl = settings.window_s + TTL_SLACK_S
+                events = while_redis_down(partial(apply, r, parsed, ttl), REDIS_WAIT_S)
                 COUNTED.inc(len(events))
                 REPLAYED.inc(len(parsed) - len(events))
                 active.update(str(e.src_ip) for e in events)
                 commit(consumer)
 
             if time.time() >= next_tick:
-                for fv in read_features(r, list(active), next_tick, settings.window_s):
+                read = partial(read_features, r, list(active), next_tick, settings.window_s)
+                vectors = while_redis_down(read, REDIS_WAIT_S)
+                for fv in vectors:
                     out.produce(settings.features_topic, key=fv.partition_key, value=fv.to_bytes())
                     EMITTED.inc()
                 out.poll(0)

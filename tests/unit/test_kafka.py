@@ -106,8 +106,9 @@ class CommitFails:
         raise KafkaException(KafkaError(self.code))
 
 
-def test_transient_commit_failures_are_skipped() -> None:
-    commit(cast(Any, CommitFails(KafkaError.NOT_COORDINATOR)))  # coordinator moved: no crash
+@pytest.mark.parametrize("code", [KafkaError.NOT_COORDINATOR, KafkaError._ASSIGNMENT_LOST])
+def test_transient_commit_failures_are_skipped(code: int) -> None:
+    commit(cast(Any, CommitFails(code)))  # coordinator moved / session lost: no crash
 
 
 def test_other_commit_failures_still_raise() -> None:
