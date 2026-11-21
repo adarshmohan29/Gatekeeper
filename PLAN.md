@@ -21,7 +21,6 @@ Design rules from the proposal's scalability section (§6b) that shape every pha
 
 ## Phase 0: Setup ✅
 
-- [ ] Create the GitHub repo (`gatekeeper` is free under your account) and add the remote. **You do this.**
 - [x] Proposal saved as `docs/PROPOSAL_AND_PLAN.md`; repo layout; `pyproject.toml`; `shared/` (event schema, settings); `NOTES.md`; `.gitignore`; `Makefile`.
 
 **Gate 0:** `make lint`, `make test`, `make gate N=0` clean. Passed, commit `6ae7dcc`.
@@ -157,13 +156,13 @@ Design rules from the proposal's scalability section (§6b) that shape every pha
 ## Phase 5c: Ship
 
 ### Tasks
-- [ ] CI (GitHub Actions): lint, unit tests, image build on every push.
+- [ ] Local CI: `make ci` (lint, unit tests, image build) run by a git pre-commit hook. The project is local-only, with no git remote.
 - [ ] Helm chart or Kustomize overlays replacing the raw manifests.
 - [ ] `make demo`: one command that brings up the stack, runs normal traffic, launches an attack and shows the mitigation.
 - [ ] README: architecture diagram, results table, scaling numbers, SLO, limitations (simulated traffic, local cluster, generator-overfitting risk); short demo video.
 
 ### Gate 5c: one-command demo of an attack and its mitigation
-- **Automated:** CI is green on `main`; `tests/gates/test_phase5c.py` runs `make demo` and asserts that the attack is blocked and normal traffic is unaffected.
+- **Automated:** `make ci` passes; `tests/gates/test_phase5c.py` runs `make demo` and asserts that the attack is blocked and normal traffic is unaffected.
 - **Manual:** from a clean clone, `make demo` works end to end. Record the video.
 
 ---

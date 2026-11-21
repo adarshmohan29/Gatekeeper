@@ -1,6 +1,6 @@
 # Gatekeeper
 
-Real-time DDoS detection and automated mitigation platform. Full proposal: `docs/PROPOSAL_AND_PLAN.md`. Build plan with gates: `PLAN.md`.
+Real-time DDoS detection and automated mitigation platform. Runs entirely locally: no git remote, never push. Full proposal: `docs/PROPOSAL_AND_PLAN.md`. Build plan with gates: `PLAN.md`.
 
 ## Rule
 **Work one phase at a time. Stop at each gate.** Only implement the phase you're asked for. When its gate test passes, report the result and stop — don't start the next phase, and don't commit unless asked.
@@ -14,7 +14,7 @@ Real-time DDoS detection and automated mitigation platform. Full proposal: `docs
 - nftables in the victim's network namespace for mitigation
 - Prometheus + Grafana
 - Docker Compose first; Kubernetes (kind, multi-broker Redpanda, lag-based autoscaling) in Phase 5b
-- GitHub Actions CI; Helm or Kustomize (Phase 5c)
+- Local CI via `make ci` + git pre-commit hook; Helm or Kustomize (Phase 5c)
 - Locust (normal traffic), hping3 (attack traffic)
 
 ## Layout
