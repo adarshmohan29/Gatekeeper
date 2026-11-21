@@ -18,7 +18,7 @@ from prometheus_client import Counter, Gauge, Histogram, start_http_server
 from services.mitigation.policy import decide, streak
 from shared.config import Settings
 from shared.events import Action, Rule, Score
-from shared.kafka import batch, group_consumer, parse_or_dead_letter, producer
+from shared.kafka import batch, commit, group_consumer, parse_or_dead_letter, producer
 
 log = logging.getLogger("mitigation")
 ACTIONS = Counter("gatekeeper_actions_total", "Rules applied", ["action"])
@@ -134,7 +134,7 @@ def main() -> None:
                 ):
                     handle(conn, s, settings)
             if msgs:
-                consumer.commit(asynchronous=False)
+                commit(consumer)
             record_expiries(conn)
     finally:
         out.flush()

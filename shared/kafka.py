@@ -5,7 +5,7 @@ import uuid
 from collections.abc import Iterable, Iterator, Sequence
 from typing import NamedTuple, Protocol, Self, TypeVar
 
-from confluent_kafka import Consumer, KafkaException, Message, Producer
+from confluent_kafka import Consumer, KafkaError, KafkaException, Message, Producer
 from prometheus_client import Counter
 from pydantic import ValidationError
 
@@ -63,6 +63,33 @@ def group_consumer(bootstrap: str, topic: str, group: str) -> Consumer:
 def tail_consumer(bootstrap: str, topic: str, name: str) -> Consumer:
     """Reads only new messages, in a fresh group so no stale members delay it."""
     return group_consumer(bootstrap, topic, f"{name}-{uuid.uuid4()}")
+
+
+# Commit failures that only mean "the group moved under us": the coordinator broker restarted
+# or a rebalance is in progress. The next commit covers the same offsets.
+TRANSIENT_COMMIT_ERRORS = frozenset(
+    {
+        KafkaError.NOT_COORDINATOR,
+        KafkaError.COORDINATOR_NOT_AVAILABLE,
+        KafkaError.REBALANCE_IN_PROGRESS,
+        KafkaError.ILLEGAL_GENERATION,
+        KafkaError.UNKNOWN_MEMBER_ID,
+        KafkaError._TRANSPORT,
+    }
+)
+
+
+def commit(consumer: Consumer) -> None:
+    """Commit consumed offsets, skipping transient failures instead of crashing.
+
+    Crashing on them (as the first chaos run did) adds a pod restart with backoff to every
+    broker restart. Skipping is safe: processing is idempotent, so a replay changes nothing.
+    """
+    try:
+        consumer.commit(asynchronous=False)
+    except KafkaException as e:
+        if e.args[0].code() not in TRANSIENT_COMMIT_ERRORS:
+            raise
 
 
 def _delivered(msg: Message) -> Delivered | None:

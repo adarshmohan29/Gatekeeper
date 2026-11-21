@@ -18,7 +18,7 @@ from prometheus_client import Gauge, start_http_server
 from services.drift.psi import FlaggedSources, Reference, drift, load
 from shared.config import Settings
 from shared.events import FeatureVector, Score
-from shared.kafka import batch, group_consumer, parse_or_dead_letter, producer
+from shared.kafka import batch, commit, group_consumer, parse_or_dead_letter, producer
 
 EVAL_S = 5
 FLAG_HOLD_S = 60  # keep a flagged source out of the window this long after its last flag
@@ -56,11 +56,11 @@ def main() -> None:
                 for _, s in parse_or_dead_letter(msgs, Score, out, settings.scores_topic):
                     if s.score >= settings.score_threshold:
                         flagged.flag(str(s.src_ip), now)
-                scores.commit(asynchronous=False)  # keeps this group's lag honest
+                commit(scores)  # keeps this group's lag honest
             if msgs := batch(features.consume(500, timeout=0.5)):
                 parsed = parse_or_dead_letter(msgs, FeatureVector, out, settings.features_topic)
                 window.extend(fv for _, fv in parsed if not flagged.recent(str(fv.src_ip), now))
-                features.commit(asynchronous=False)
+                commit(features)
             if now >= next_eval:
                 report(window, refs)
                 flagged.prune(now)

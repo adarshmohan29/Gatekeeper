@@ -11,6 +11,7 @@ from shared.kafka import (
     DEAD_LETTERS,
     Delivered,
     batch,
+    commit,
     parse_or_dead_letter,
     producer,
     stream,
@@ -95,3 +96,20 @@ def test_malformed_messages_go_to_the_dead_letter_topic() -> None:
     assert (topic, key, value) == ("scores-dlq", b"k", b"not json")
     assert "Invalid JSON" in headers["error"]
     assert DEAD_LETTERS.labels("scores")._value.get() == before + 1
+
+
+class CommitFails:
+    def __init__(self, code: int) -> None:
+        self.code = code
+
+    def commit(self, **_: bool) -> None:
+        raise KafkaException(KafkaError(self.code))
+
+
+def test_transient_commit_failures_are_skipped() -> None:
+    commit(cast(Any, CommitFails(KafkaError.NOT_COORDINATOR)))  # coordinator moved: no crash
+
+
+def test_other_commit_failures_still_raise() -> None:
+    with pytest.raises(KafkaException):
+        commit(cast(Any, CommitFails(KafkaError.TOPIC_AUTHORIZATION_FAILED)))

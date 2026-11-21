@@ -18,7 +18,7 @@ from prometheus_client import Counter, Histogram, start_http_server
 from services.detector.detectors import Detector, load_detector
 from shared.config import Settings
 from shared.events import FeatureVector, Score
-from shared.kafka import batch, group_consumer, parse_or_dead_letter, producer
+from shared.kafka import batch, commit, group_consumer, parse_or_dead_letter, producer
 
 log = logging.getLogger("detector")
 settings = Settings.from_env()
@@ -59,7 +59,7 @@ def run(detector: Detector) -> None:
                 LATENCY.observe(time.time() - s.window_end)
             if msgs:
                 out.flush()  # scores delivered before offsets commit: at-least-once
-                consumer.commit(asynchronous=False)
+                commit(consumer)
     finally:
         consumer.close()  # leave the group now, so a replacement gets the partitions at once
 

@@ -16,7 +16,7 @@ from redis import Redis
 from services.feature_engine.windows import apply, read_features
 from shared.config import Settings
 from shared.events import FlowEvent
-from shared.kafka import batch, group_consumer, parse_or_dead_letter, producer
+from shared.kafka import batch, commit, group_consumer, parse_or_dead_letter, producer
 
 TTL_SLACK_S = 5  # keep buckets a little longer than the window so late reads still see them
 COUNTED = Counter("gatekeeper_events_counted_total", "Flow events counted into Redis windows")
@@ -45,7 +45,7 @@ def main() -> None:
                 COUNTED.inc(len(events))
                 REPLAYED.inc(len(parsed) - len(events))
                 active.update(str(e.src_ip) for e in events)
-                consumer.commit(asynchronous=False)
+                commit(consumer)
 
             if time.time() >= next_tick:
                 for fv in read_features(r, list(active), next_tick, settings.window_s):
