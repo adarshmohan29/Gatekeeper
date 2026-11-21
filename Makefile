@@ -1,7 +1,7 @@
 PY      ?= .venv/bin/python
 COMPOSE ?= docker compose -f infra/compose/docker-compose.yml
 
-.PHONY: venv up down logs test lint gate
+.PHONY: venv up down logs test lint gate baseline
 
 venv:
 	python3 -m venv .venv
@@ -9,6 +9,7 @@ venv:
 
 up:
 	$(COMPOSE) up -d --build
+	$(COMPOSE) build attacker
 
 down:
 	$(COMPOSE) down -v
@@ -27,4 +28,8 @@ lint:
 # Usage: make gate N=1
 gate:
 	@test -n "$(N)" || (echo "usage: make gate N=<phase>"; exit 1)
-	$(PY) -m pytest tests/gates/test_phase$(N).py
+	$(PY) -m pytest -s tests/gates/test_phase$(N).py
+
+# Fit the detector baseline on normal traffic (stack up, no attack running).
+baseline:
+	$(PY) scripts/train_baseline.py --seconds 60

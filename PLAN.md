@@ -47,33 +47,27 @@ Design rules from the proposal's scalability section (§6b) that shape every pha
 
 ---
 
-## Phase 2: Detect
+## Phase 2: Detect ✅
 
 ### Tasks
-- [ ] `feature_engine`: consumes `flow-events` as a consumer group and computes sliding-window features:
-  - [ ] per source: packets/s, bytes/s, SYN-to-ACK ratio
-  - [ ] per destination: distinct source count, source entropy, destination-port entropy
-- [ ] All window state in Redis with TTL expiry. Per-destination aggregates span partitions, so they **must** live in Redis, not in process. Window 10 s, step 1 s, configurable.
-- [ ] Commit offsets after Redis writes (at-least-once). A replayed event must not distort the features: make counters idempotent, or measure and document the duplicate rate.
-- [ ] Publish feature vectors to `features` (one record per key per window, keyed by source IP).
-- [ ] `detector` (FastAPI): common interface
-  ```python
-  class Detector(Protocol):
-      name: str
-
-      def score(self, features: FeatureVector) -> float: ...  # attack probability in [0, 1]
-  ```
-  - [ ] Detector chosen by env var; nothing else changes to swap it.
-  - [ ] Consumes `features`, publishes to `scores`, logs scores above the threshold.
-  - [ ] `/healthz` endpoint (readiness for Phase 5b).
-- [ ] `EntropyThresholdDetector`: learns normal ranges (mean ± k·std of packet rate and source entropy) from a normal-traffic capture.
-- [ ] `attacker` container (hping3: SYN flood, UDP flood; plus an HTTP flood) on `lab`, targeting `victim` only, started on demand.
-- [ ] Collector survives flood rates. When the producer queue is full, drop and count (sampling under overload), never crash.
-- [ ] Unit tests: entropy on known distributions, window rollover and expiry, SYN/ACK ratio with zero ACKs, detector contract.
+- [x] `feature_engine`: consumer-group member on `flow-events`; per-second buckets in Redis; once a second, emits a vector for every source seen that second:
+  - [x] per source: packets/s, bytes/s, SYN-to-ACK ratio (`syn / (ack + 1)`)
+  - [x] per destination (the one the source hit most): distinct source count, source entropy, destination-port entropy
+- [x] All window state in Redis (hash buckets, `HINCRBY`, TTL = window + 5 s), so replicas add up instead of overwriting. Window 10 s, step 1 s (`WINDOW_S`).
+- [x] At-least-once: offsets are committed after the Redis write. A replay double-counts the uncommitted batch; documented, not deduplicated (see `NOTES.md`).
+- [x] Clean shutdown: SIGTERM closes consumers (they leave the group immediately) and flushes producers. Session timeout 10 s for crashed members.
+- [x] Feature vectors published to `features`, keyed by source IP.
+- [x] `detector` (FastAPI + Kafka worker thread): `Detector` protocol (`name`, `score(features) -> float`), chosen by `DETECTOR`, baseline loaded at startup (fail fast), publishes to `scores`, logs `ATTACK` above `SCORE_THRESHOLD`, `/healthz`.
+- [x] `ThresholdDetector` (the baseline): upper bound per source feature = 2 × p99 of normal traffic (floor 1.0); score 0.5 at the bound. Destination entropy can't say *which* source is attacking, so it isn't scored here; it's computed for the Phase 4 models. Fitted with `make baseline`, saved to `models/baseline.json`.
+- [x] `attacker` (profile `attack`, fixed IP 172.30.0.200): `syn`, `udp` (hping3) and `http` (ab) floods against `victim` only, at a controlled rate (default 2000 pps).
+- [x] Normal traffic from 3 Locust replicas (3 source IPs).
+- [x] Collector sheds load: when the producer queue is full it drops and counts, never crashes.
+- [x] Unit tests: batch aggregation, entropy, window bounds, concurrent writers, TTL, zero-ACK SYN ratio, detector fit/score/save/load, Kafka error handling.
+- [x] End-of-phase code review.
 
 ### Gate 2: a simulated flood is flagged in the logs
-- **Automated:** `tests/gates/test_phase2.py`. 30 s of normal traffic gives no flagged windows. A 20 s SYN flood gets the attacker flagged within N windows. The test prints the detection delay (attack start to first flag).
-- **Manual:** `make logs` shows the flag line during an attack. Log the delay in `NOTES.md`.
+- **Automated:** `tests/gates/test_phase2.py`. 30 s of normal traffic gives scores but no flags. A 20 s SYN flood gets the attacker, and only the attacker, flagged within 10 s. The test prints the detection delay. Needs `make up` and `make baseline` first.
+- **Manual:** `make logs` (or `docker compose logs detector`) shows `ATTACK src=172.30.0.200` during an attack. Log the delay in `NOTES.md`.
 
 ---
 

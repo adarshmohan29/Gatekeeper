@@ -1,11 +1,26 @@
 name: gatekeeper
 
 # `lab` is internal: no route to the outside world. Only Redpanda also joins
-# `default` so the host can reach it on 127.0.0.1:19092.
+# `default` so the host can reach it on 127.0.0.1:19092. Dynamic addresses come
+# from the lower half of the subnet; the upper half is for fixed addresses.
 networks:
   lab:
     internal: true
+    ipam:
+      config:
+        - subnet: 172.30.0.0/24
+          ip_range: 172.30.0.0/25
   default:
+
+x-python-service: &python-service
+  build:
+    context: ../..
+    dockerfile: services/Dockerfile
+  environment:
+    KAFKA_BOOTSTRAP: redpanda:9092
+    REDIS_URL: redis://redis:6379/0
+    BASELINE_PATH: /app/models/baseline.json
+  restart: unless-stopped
 
 services:
   redpanda:
@@ -22,13 +37,13 @@ services:
       retries: 20
 
   # Creates topics before anything uses them. 6 partitions = room for up to 6 consumer replicas.
-  # `describe` makes a rerun succeed when the topic already exists.
+  # `describe` makes a rerun succeed when the topics already exist.
   redpanda-init:
     image: redpandadata/redpanda:v24.2.7
     entrypoint: ["sh", "-c"]
     command: >-
-      "rpk topic create flow-events -p 6 -X brokers=redpanda:9092
-      || rpk topic describe flow-events -X brokers=redpanda:9092"
+      "rpk topic create flow-events features scores -p 6 -X brokers=redpanda:9092
+      || rpk topic describe flow-events features scores -X brokers=redpanda:9092"
     networks: [lab]
     depends_on:
       redpanda: { condition: service_healthy }
@@ -59,21 +74,47 @@ services:
       interval: 3s
 
   collector:
-    build:
-      context: ../..
-      dockerfile: services/collector/Dockerfile
+    <<: *python-service
+    command: python -m services.collector.main
     network_mode: service:victim
     cap_add: [NET_RAW]
-    environment:
-      KAFKA_BOOTSTRAP: redpanda:9092
     depends_on:
       redpanda-init: { condition: service_completed_successfully }
       victim: { condition: service_healthy }
 
+  feature-engine:
+    <<: *python-service
+    command: python -m services.feature_engine.main
+    networks: [lab]
+    depends_on:
+      redpanda-init: { condition: service_completed_successfully }
+      redis: { condition: service_healthy }
+
+  detector:
+    <<: *python-service
+    command: uvicorn services.detector.main:app --host 0.0.0.0 --port 8000
+    networks: [lab]
+    volumes: ["../../models:/app/models:ro"]
+    depends_on:
+      redpanda-init: { condition: service_completed_successfully }
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://localhost:8000/healthz')"]
+      interval: 3s
+
+  # Three replicas = three normal source IPs.
   loadgen:
     image: locustio/locust:2.32.0
     command: -f /mnt/locustfile.py --headless -u 10 -r 2 --host http://victim
     volumes: ["../../services/loadgen/locustfile.py:/mnt/locustfile.py:ro"]
     networks: [lab]
+    deploy: { replicas: 3 }
     depends_on:
       victim: { condition: service_healthy }
+
+  # On demand only: `docker compose run --rm attacker syn 20`.
+  attacker:
+    build: ../../services/attacker
+    profiles: [attack]
+    cap_add: [NET_RAW]
+    networks:
+      lab: { ipv4_address: 172.30.0.200 }

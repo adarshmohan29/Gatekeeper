@@ -1,22 +1,19 @@
-"""Print flow events from Kafka as they arrive. Run from the host while the stack is up."""
+"""Print records from a Kafka topic as they arrive. Usage: consume.py [topic]"""
+
+import math
+import sys
 
 from shared.config import Settings
-from shared.events import FlowEvent
-from shared.kafka import tail_consumer
+from shared.kafka import stream, tail_consumer
 
 
 def main() -> None:
     settings = Settings.from_env()
-    consumer = tail_consumer(settings.kafka_bootstrap, settings.flow_topic, "debug")
+    topic = sys.argv[1] if len(sys.argv) > 1 else settings.flow_topic
+    consumer = tail_consumer(settings.kafka_bootstrap, topic, "debug")
     try:
-        while True:
-            msg = consumer.poll(1.0)
-            if msg is None:
-                continue
-            value = msg.value()
-            if msg.error() or value is None:
-                raise RuntimeError(msg.error())
-            print(FlowEvent.from_bytes(value))
+        for _, value in stream(consumer, math.inf):
+            print(value.decode())
     finally:
         consumer.close()
 

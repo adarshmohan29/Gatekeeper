@@ -2,6 +2,16 @@
 
 What broke, what was measured, what surprised me. Newest first.
 
+## Phase 2: Detect (2026-11-20)
+- **Measured:** detection delay (attack launch to first flagged score) of 1.3 s, 1.5 s and 1.3 s over three Gate 2 runs, two of them cold starts. This includes about 1 s of attacker container start-up. 0 false positives in 30 s of normal traffic; only the attacker was ever flagged.
+- **Baseline** fitted on 177 vectors from 60 s of normal traffic: bounds pkt_rate 52.6/s, byte_rate 5216.8 B/s, syn_ack_ratio 2.0 (floor). Normal sources run at about 24 pkt/s each. The SYN flood (2000 pps) scores 1.0 immediately.
+- **Design:** destination entropy drops for *every* source talking to an attacked destination, so it can't attribute an attack to a source. The baseline scores per-source features only; entropy is kept for the Phase 4 models and for distributed or flash-crowd cases.
+- **At-least-once trade-off:** HINCRBY counters aren't idempotent. A feature-engine crash replays the uncommitted batch (at most about 0.2 s of events) and double-counts it in those buckets. That's acceptable: it inflates rates by a fraction of a second's traffic. Exact dedup would need per-event IDs in Redis, which costs far more than it saves.
+- **Broke:** after `docker compose restart detector`, no scores arrived for about 45 s. The killed process never left its consumer group, so the rebalance waited out the 45 s default session timeout. Fix: SIGTERM closes consumers (they leave immediately) and flushes producers; session timeout cut to 10 s for real crashes. Recovery after a restart went from about 45 s to about 1 s. This matters for the Phase 5b chaos tests.
+- **Broke:** Docker's embedded DNS on `lab` returned SERVFAIL for every name after a failed `make up` (invalid compose file). Identical throwaway networks worked fine, and recreating the stack (`make down && make up`) fixed it. Couldn't reproduce afterwards; if it happens again, recreate first.
+- **Broke:** compose `!reset` doesn't apply through a YAML merge (`<<:`). Fix: `networks` moved out of the shared anchor.
+- **Review fixes:** the detector now loads the baseline at startup (a missing file fails startup instead of leaving a dead thread behind a 503); the training script exits clearly on zero vectors; renamed a confusing variable; added a named constant in the gate.
+
 ## Phase 1: Foundations (2026-11-20)
 - Proposal updated (adds §6b on scalability and reliability). Phase 5 is split into 5a/5b/5c. Design rules (no state in memory, at-least-once, idempotent mitigation) now apply from Phase 2 on.
 - Decision: per-packet events (not per-flow aggregates). Simplest to parse and lets the feature engine own all windowing. Revisit if Kafka throughput becomes the bottleneck under flood.
