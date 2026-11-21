@@ -1,0 +1,34 @@
+# KEDA scales the consumers on Kafka consumer-group lag. Max 4 replicas (topics have 6
+# partitions; more consumers than partitions would sit idle). Applied after KEDA is installed.
+# To pin replicas (load tests): annotate autoscaling.keda.sh/paused-replicas: "<n>".
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: feature-engine
+spec:
+  scaleTargetRef: { name: feature-engine }
+  minReplicaCount: 1
+  maxReplicaCount: 4
+  triggers:
+    - type: kafka
+      metadata:
+        bootstrapServers: redpanda-0.redpanda:9092,redpanda-1.redpanda:9092,redpanda-2.redpanda:9092
+        consumerGroup: feature-engine
+        topic: flow-events
+        lagThreshold: "2000"  # target lag per replica
+---
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: detector
+spec:
+  scaleTargetRef: { name: detector }
+  minReplicaCount: 1
+  maxReplicaCount: 4
+  triggers:
+    - type: kafka
+      metadata:
+        bootstrapServers: redpanda-0.redpanda:9092,redpanda-1.redpanda:9092,redpanda-2.redpanda:9092
+        consumerGroup: detector
+        topic: features
+        lagThreshold: "500"

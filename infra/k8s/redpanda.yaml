@@ -1,0 +1,83 @@
+# Three brokers; topics are replicated 3 ways (redpanda-init), so one broker can die.
+apiVersion: v1
+kind: Service
+metadata:
+  name: redpanda
+spec:
+  clusterIP: None  # headless: stable DNS per broker (redpanda-0.redpanda, ...)
+  publishNotReadyAddresses: true  # brokers must find each other before they are ready
+  selector: { app: redpanda }
+  ports:
+    - { name: kafka, port: 9092 }
+    - { name: admin, port: 9644 }
+    - { name: rpc, port: 33145 }
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: redpanda
+spec:
+  serviceName: redpanda
+  replicas: 3
+  podManagementPolicy: Parallel  # seed brokers form the cluster together
+  selector:
+    matchLabels: { app: redpanda }
+  template:
+    metadata:
+      labels: { app: redpanda }
+    spec:
+      containers:
+        - name: redpanda
+          image: redpandadata/redpanda:v25.1.9
+          env:
+            - name: POD_NAME
+              valueFrom: { fieldRef: { fieldPath: metadata.name } }
+          args:
+            - redpanda
+            - start
+            - --mode=dev-container
+            - --smp=1
+            - --memory=256M  # plenty for the lab; 3 brokers must fit in a 4 GB VM
+            - --kafka-addr=internal://0.0.0.0:9092
+            - --advertise-kafka-addr=internal://$(POD_NAME).redpanda:9092
+            - --rpc-addr=0.0.0.0:33145
+            - --advertise-rpc-addr=$(POD_NAME).redpanda:33145
+            - --seeds=redpanda-0.redpanda:33145,redpanda-1.redpanda:33145,redpanda-2.redpanda:33145
+            # Pods start in parallel: a producer must never auto-create a topic before
+            # redpanda-init creates it with 6 partitions and 3 replicas. Clients retry meanwhile.
+            - --set  # rpk only parses the two-argument form
+            - redpanda.auto_create_topics_enabled=false
+          readinessProbe:
+            httpGet: { path: /v1/status/ready, port: 9644 }
+            periodSeconds: 3
+          volumeMounts:
+            - { name: data, mountPath: /var/lib/redpanda/data }
+  volumeClaimTemplates:  # a restarted broker keeps its data and identity
+    - metadata:
+        name: data
+      spec:
+        accessModes: [ReadWriteOnce]
+        resources:
+          requests: { storage: 1Gi }
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: redpanda-init
+spec:
+  backoffLimit: 20  # retries until the brokers are up
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: init
+          image: redpandadata/redpanda:v25.1.9
+          env:
+            - { name: TOPICS, value: "flow-events features scores flow-events-dlq features-dlq scores-dlq" }
+          command: [sh, -c]
+          args:
+            - |
+              set -e
+              rpk() { command rpk "$@" -X brokers=redpanda:9092 -X admin.hosts=redpanda-0.redpanda:9644; }
+              rpk cluster config set enable_consumer_group_metrics '["group", "partition", "consumer_lag"]'
+              rpk topic create $TOPICS -p 6 -r 3 || rpk topic describe $TOPICS

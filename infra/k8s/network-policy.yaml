@@ -1,0 +1,40 @@
+# Lab isolation: nothing in the namespace can reach outside it (DNS excepted), and attacker
+# pods can reach only the victim. (Images are pulled by the node, so this doesn't block them.)
+# Policies are additive, so attackers must be excluded from the first one: otherwise its
+# "any pod in the namespace" rule would let them reach Redis, Kafka and the enforcer.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: no-egress-outside-namespace
+spec:
+  podSelector:
+    matchExpressions: [{ key: role, operator: NotIn, values: [attacker] }]
+  policyTypes: [Egress]
+  egress:
+    - to: [{ podSelector: {} }]
+    - to: [{ namespaceSelector: {} , podSelector: { matchLabels: { k8s-app: kube-dns } } }]
+      ports: [{ port: 53, protocol: UDP }, { port: 53, protocol: TCP }]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: attacker-reaches-only-the-victim
+spec:
+  podSelector: { matchLabels: { role: attacker } }
+  policyTypes: [Egress]
+  egress:
+    - to: [{ podSelector: { matchLabels: { app: victim } } }]
+    - to: [{ namespaceSelector: {}, podSelector: { matchLabels: { k8s-app: kube-dns } } }]
+      ports: [{ port: 53, protocol: UDP }, { port: 53, protocol: TCP }]
+---
+# Prometheus discovers pods through the Kubernetes API, which lives outside the namespace
+# (the API server, on the node). Only Prometheus gets this exception, and only on its ports.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: prometheus-reaches-the-api-server
+spec:
+  podSelector: { matchLabels: { app: prometheus } }
+  policyTypes: [Egress]
+  egress:
+    - ports: [{ port: 443, protocol: TCP }, { port: 6443, protocol: TCP }]

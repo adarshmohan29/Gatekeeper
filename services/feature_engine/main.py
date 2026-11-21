@@ -48,13 +48,9 @@ def main() -> None:
                 consumer.commit(asynchronous=False)
 
             if time.time() >= next_tick:
-                for src in active:
-                    fv = read_features(r, src, next_tick, settings.window_s)
-                    if fv is not None:
-                        out.produce(
-                            settings.features_topic, key=fv.partition_key, value=fv.to_bytes()
-                        )
-                        EMITTED.inc()
+                for fv in read_features(r, list(active), next_tick, settings.window_s):
+                    out.produce(settings.features_topic, key=fv.partition_key, value=fv.to_bytes())
+                    EMITTED.inc()
                 out.poll(0)
                 active.clear()
                 next_tick += 1

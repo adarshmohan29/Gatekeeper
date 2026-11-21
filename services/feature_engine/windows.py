@@ -85,33 +85,56 @@ def entropy(counts: Iterable[int]) -> float:
     return sum(c / total * math.log2(total / c) for c in counts if c) if total else 0.0
 
 
-def _merged(r: Redis, keys: list[str]) -> Counter[str]:
+def _merged_groups(r: Redis, groups: list[list[str]]) -> list[Counter[str]]:
+    """Sum the hashes in each group of keys, for all groups in a single round trip."""
     pipe = r.pipeline(transaction=False)
-    for key in keys:
-        pipe.hgetall(key)
-    total: Counter[str] = Counter()
-    for fields in pipe.execute():
-        total.update({f: int(n) for f, n in fields.items()})
-    return total
+    for keys in groups:
+        for key in keys:
+            pipe.hgetall(key)
+    results = iter(pipe.execute())
+    merged = []
+    for keys in groups:
+        total: Counter[str] = Counter()
+        for _ in keys:
+            total.update({f: int(n) for f, n in next(results).items()})
+        merged.append(total)
+    return merged
 
 
-def read_features(r: Redis, src: str, window_end: int, window_s: int) -> FeatureVector | None:
-    """Features of `src` over [window_end - window_s, window_end), or None if it sent nothing."""
+def read_features(
+    r: Redis, srcs: Sequence[str], window_end: int, window_s: int
+) -> list[FeatureVector]:
+    """Features of each source over [window_end - window_s, window_end); silent ones are skipped.
+
+    Two Redis round trips per tick however many sources there are: one for every source's
+    buckets, one for their destinations' (usually a single victim, read once, not per source).
+    """
     secs = range(window_end - window_s, window_end)
-    s = _merged(r, [f"s:{src}:{sec}" for sec in secs])
-    if not s["p"]:
-        return None
-    dst = max((f for f in s if f.startswith("to:")), key=s.__getitem__).removeprefix("to:")
-    srcs = _merged(r, [f"d:{dst}:{sec}:src" for sec in secs])
-    ports = _merged(r, [f"d:{dst}:{sec}:port" for sec in secs])
-    return FeatureVector(
-        src_ip=src,
-        dst_ip=dst,
-        window_end=window_end,
-        pkt_rate=s["p"] / window_s,
-        byte_rate=s["b"] / window_s,
-        syn_ack_ratio=s["syn"] / (s["ack"] + 1),
-        dst_distinct_srcs=len(srcs),
-        dst_src_entropy=entropy(srcs.values()),
-        dst_port_entropy=entropy(ports.values()),
+    per_src = _merged_groups(r, [[f"s:{src}:{sec}" for sec in secs] for src in srcs])
+    active = {src: c for src, c in zip(srcs, per_src, strict=True) if c["p"]}
+    dst_of = {
+        src: max((f for f in c if f.startswith("to:")), key=c.__getitem__).removeprefix("to:")
+        for src, c in active.items()
+    }
+    dsts = sorted(set(dst_of.values()))
+    per_dst = _merged_groups(
+        r, [[f"d:{d}:{sec}:{kind}" for sec in secs] for d in dsts for kind in ("src", "port")]
     )
+    by_dst = {d: (per_dst[2 * i], per_dst[2 * i + 1]) for i, d in enumerate(dsts)}
+    vectors = []
+    for src, c in active.items():
+        senders, ports = by_dst[dst_of[src]]
+        vectors.append(
+            FeatureVector(
+                src_ip=src,
+                dst_ip=dst_of[src],
+                window_end=window_end,
+                pkt_rate=c["p"] / window_s,
+                byte_rate=c["b"] / window_s,
+                syn_ack_ratio=c["syn"] / (c["ack"] + 1),
+                dst_distinct_srcs=len(senders),
+                dst_src_entropy=entropy(senders.values()),
+                dst_port_entropy=entropy(ports.values()),
+            )
+        )
+    return vectors

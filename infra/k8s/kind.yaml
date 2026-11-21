@@ -1,0 +1,11 @@
+# Single node: the Docker VM has 4 GB, and replicas/failover here are about pods, not nodes.
+# Calico replaces the default CNI: kindnet's NetworkPolicy engine needs nfqueue, which fails on
+# this kernel (OrbStack), and then lets everything through without saying so.
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: gatekeeper
+networking:
+  disableDefaultCNI: true
+  podSubnet: 192.168.0.0/16  # Calico's default pool
+nodes:
+  - role: control-plane

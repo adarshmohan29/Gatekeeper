@@ -1,4 +1,4 @@
-# One image for every Python service; compose picks the entrypoint with `command:`.
+# One image for every Python service; Compose/Kubernetes pick the entrypoint.
 FROM python:3.11-slim
 WORKDIR /app
 RUN apt-get update && apt-get install -y --no-install-recommends nftables \
@@ -7,3 +7,5 @@ COPY pyproject.toml .
 COPY shared shared
 COPY services services
 RUN pip install --no-cache-dir .
+# Trained models (a few KB) are baked in; Compose mounts ../../models over them for dev.
+COPY models models

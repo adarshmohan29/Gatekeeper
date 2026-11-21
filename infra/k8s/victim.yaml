@@ -1,0 +1,49 @@
+# The protected service. The collector and the enforcer are sidecars: containers in a pod share
+# one network namespace, so they see and filter the victim's traffic (Compose emulates this
+# with network_mode: service:victim).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: victim
+spec:
+  selector:
+    matchLabels: { app: victim }
+  template:
+    metadata:
+      labels: { app: victim }
+      annotations: { prometheus.io/scrape: "true" }  # the collector's metrics, port 9100
+    spec:
+      containers:
+        - name: nginx
+          image: nginx:1.27-alpine
+          ports: [{ containerPort: 80 }]
+          readinessProbe:
+            httpGet: { path: /, port: 80 }
+            periodSeconds: 3
+        - name: collector
+          image: gatekeeper:dev
+          command: [python, -m, services.collector.main]
+          envFrom: [{ configMapRef: { name: gatekeeper-env } }]
+          securityContext:
+            capabilities: { add: [NET_RAW] }
+        - name: enforcer
+          image: gatekeeper:dev
+          command: [uvicorn, services.enforcer.main:app, --host, 0.0.0.0, --port, "9000"]
+          envFrom:
+            - configMapRef: { name: gatekeeper-env }
+            - secretRef: { name: enforcer-token }
+          securityContext:
+            capabilities: { add: [NET_ADMIN] }
+          readinessProbe:
+            httpGet: { path: /healthz, port: 9000 }
+            periodSeconds: 3
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: victim
+spec:
+  selector: { app: victim }
+  ports:
+    - { name: http, port: 80 }
+    - { name: enforcer, port: 9000 }

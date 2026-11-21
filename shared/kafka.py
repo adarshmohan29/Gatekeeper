@@ -21,9 +21,22 @@ class Delivered(NamedTuple):
     value: bytes
 
 
+# A broker that dies abruptly sends no TCP reset: requests in flight to it hang until this
+# timeout (librdkafka's default is 60 s, which stalled its partitions for a minute in the chaos
+# tests). Fetches long-poll for at most 0.5 s, so 10 s is still generous for a live broker.
+SOCKET_TIMEOUT_MS = 10_000
+
+
 def producer(bootstrap: str) -> Producer:
     # Idempotent: broker-side dedup, so producer retries never duplicate records.
-    return Producer({"bootstrap.servers": bootstrap, "linger.ms": 50, "enable.idempotence": True})
+    return Producer(
+        {
+            "bootstrap.servers": bootstrap,
+            "linger.ms": 50,
+            "enable.idempotence": True,
+            "socket.timeout.ms": SOCKET_TIMEOUT_MS,
+        }
+    )
 
 
 def group_consumer(bootstrap: str, topic: str, group: str) -> Consumer:
@@ -35,8 +48,12 @@ def group_consumer(bootstrap: str, topic: str, group: str) -> Consumer:
             "auto.offset.reset": "latest",
             "enable.auto.commit": False,
             # A member that dies without leaving the group is evicted after this long; its
-            # partitions sit unconsumed until then. Clean shutdowns leave immediately (close()).
-            "session.timeout.ms": 10_000,
+            # partitions sit unconsumed until then (clean shutdowns leave at once, via close()).
+            # 6 s is the broker's minimum. Heartbeats come from librdkafka's own thread, so a
+            # busy Python loop doesn't miss them; only a truly dead process gets evicted.
+            "session.timeout.ms": 6_000,
+            "heartbeat.interval.ms": 2_000,
+            "socket.timeout.ms": SOCKET_TIMEOUT_MS,
         }
     )
     consumer.subscribe([topic])

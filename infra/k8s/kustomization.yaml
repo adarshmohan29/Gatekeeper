@@ -1,0 +1,31 @@
+# Build with: kubectl kustomize --load-restrictor LoadRestrictionsNone infra/k8s
+# (config files are shared with Compose, so some live outside this directory)
+namespace: gatekeeper
+resources:
+  - namespace.yaml
+  - redpanda.yaml
+  - state.yaml
+  - victim.yaml
+  - pipeline.yaml
+  - loadgen.yaml
+  - prometheus.yaml
+  - network-policy.yaml
+configMapGenerator:
+  - name: gatekeeper-env
+    literals:
+      - KAFKA_BOOTSTRAP=redpanda-0.redpanda:9092,redpanda-1.redpanda:9092,redpanda-2.redpanda:9092
+      - REDIS_URL=redis://redis:6379/0
+      - POSTGRES_DSN=postgresql://gatekeeper:gatekeeper@postgres/gatekeeper
+      - ENFORCER_URL=http://victim:9000
+      - MODELS_DIR=/app/models
+      - DETECTOR=threshold
+      - RULE_TTL_S=15
+  - name: postgres-init
+    files: [../compose/postgres/init.sql]
+  - name: locustfile
+    files: [../../services/loadgen/locustfile.py]
+  - name: prometheus
+    files: [prometheus.yml, ../monitoring/alerts.yml]
+secretGenerator:
+  - name: enforcer-token
+    literals: [ENFORCER_TOKEN=local-dev-token]  # lab only; same default as Compose

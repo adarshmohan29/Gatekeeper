@@ -40,8 +40,7 @@ def deliver(
 
 
 def rate(r: fakeredis.FakeRedis, src: str = "10.0.0.5") -> float:
-    fv = read_features(r, src, END, WINDOW)
-    assert fv is not None
+    (fv,) = read_features(r, [src], END, WINDOW)
     return fv.pkt_rate
 
 
@@ -70,8 +69,7 @@ def test_features_over_window(r: fakeredis.FakeRedis) -> None:
     events += [ev("10.0.0.6", 999), ev("10.0.0.6", 989), ev("10.0.0.6", 1000)]  # last two outside
     apply(r, deliver(*events), TTL)
 
-    fv = read_features(r, "10.0.0.5", END, WINDOW)
-    assert fv is not None
+    (fv,) = read_features(r, ["10.0.0.5"], END, WINDOW)
     assert str(fv.dst_ip) == VICTIM
     assert (fv.pkt_rate, fv.byte_rate) == (0.2, 20.0)
     assert fv.syn_ack_ratio == 2.0  # no ACKs: SYNs / (0 + 1)
@@ -122,4 +120,19 @@ def test_buckets_expire(r: fakeredis.FakeRedis) -> None:
 
 
 def test_silent_source_has_no_features(r: fakeredis.FakeRedis) -> None:
-    assert read_features(r, "10.0.0.9", END, WINDOW) is None
+    assert read_features(r, ["10.0.0.9"], END, WINDOW) == []
+
+
+def test_many_sources_and_destinations_in_one_read(r: fakeredis.FakeRedis) -> None:
+    other = "10.0.0.3"
+    events = [ev("10.0.0.5", 995), ev("10.0.0.5", 996), ev("10.0.0.6", 995)]
+    events.append(ev("10.0.0.7", 995).model_copy(update={"dst_ip": other}))
+    apply(r, deliver(*events), TTL)
+
+    vectors = read_features(r, ["10.0.0.5", "10.0.0.9", "10.0.0.6", "10.0.0.7"], END, WINDOW)
+
+    by_src = {str(v.src_ip): v for v in vectors}
+    assert list(by_src) == ["10.0.0.5", "10.0.0.6", "10.0.0.7"]  # .9 was silent
+    assert (by_src["10.0.0.5"].pkt_rate, by_src["10.0.0.6"].pkt_rate) == (0.2, 0.1)
+    assert by_src["10.0.0.5"].dst_distinct_srcs == by_src["10.0.0.6"].dst_distinct_srcs == 2
+    assert (str(by_src["10.0.0.7"].dst_ip), by_src["10.0.0.7"].dst_distinct_srcs) == (other, 1)

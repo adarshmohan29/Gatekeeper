@@ -1,0 +1,119 @@
+# feature-engine: consumer-group member; KEDA scales it on lag
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: feature-engine
+spec:
+  selector:
+    matchLabels: { app: feature-engine }
+  template:
+    metadata:
+      labels: { app: feature-engine }
+      annotations: { prometheus.io/scrape: "true" }
+    spec:
+      terminationGracePeriodSeconds: 15  # SIGTERM: leave the consumer group, flush producers
+      containers:
+        - name: feature-engine
+          image: gatekeeper:dev
+          command: ["python", "-m", "services.feature_engine.main"]
+          envFrom:
+            - configMapRef: { name: gatekeeper-env }
+            - secretRef: { name: enforcer-token }
+          readinessProbe: { tcpSocket: { port: 9100 } }
+          # Lenient: under CPU saturation a busy process answers slowly, and a strict liveness
+          # probe kills it, which adds a restart and a rebalance to the overload (a cascade).
+          livenessProbe:
+            tcpSocket: { port: 9100 }
+            timeoutSeconds: 5
+            periodSeconds: 10
+            failureThreshold: 6
+---
+# detector: consumer-group member; KEDA scales it on lag
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: detector
+spec:
+  selector:
+    matchLabels: { app: detector }
+  template:
+    metadata:
+      labels: { app: detector }
+      annotations: { prometheus.io/scrape: "true" }
+    spec:
+      terminationGracePeriodSeconds: 15  # SIGTERM: leave the consumer group, flush producers
+      containers:
+        - name: detector
+          image: gatekeeper:dev
+          command: ["uvicorn", "services.detector.main:app", "--host", "0.0.0.0", "--port", "8000"]
+          envFrom:
+            - configMapRef: { name: gatekeeper-env }
+            - secretRef: { name: enforcer-token }
+          readinessProbe: { httpGet: { path: /healthz, port: 8000 } }
+          # Lenient: under CPU saturation a busy process answers slowly, and a strict liveness
+          # probe kills it, which adds a restart and a rebalance to the overload (a cascade).
+          livenessProbe:
+            httpGet: { path: /healthz, port: 8000 }
+            timeoutSeconds: 5
+            periodSeconds: 10
+            failureThreshold: 6
+---
+# mitigation: one replica: its decisions are serialized per source by partition anyway
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mitigation
+spec:
+  selector:
+    matchLabels: { app: mitigation }
+  template:
+    metadata:
+      labels: { app: mitigation }
+      annotations: { prometheus.io/scrape: "true" }
+    spec:
+      terminationGracePeriodSeconds: 15  # SIGTERM: leave the consumer group, flush producers
+      containers:
+        - name: mitigation
+          image: gatekeeper:dev
+          command: ["python", "-m", "services.mitigation.main"]
+          envFrom:
+            - configMapRef: { name: gatekeeper-env }
+            - secretRef: { name: enforcer-token }
+          readinessProbe: { tcpSocket: { port: 9100 } }
+          # Lenient: under CPU saturation a busy process answers slowly, and a strict liveness
+          # probe kills it, which adds a restart and a rebalance to the overload (a cascade).
+          livenessProbe:
+            tcpSocket: { port: 9100 }
+            timeoutSeconds: 5
+            periodSeconds: 10
+            failureThreshold: 6
+---
+# drift: one replica: a single rolling window
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: drift
+spec:
+  selector:
+    matchLabels: { app: drift }
+  template:
+    metadata:
+      labels: { app: drift }
+      annotations: { prometheus.io/scrape: "true" }
+    spec:
+      terminationGracePeriodSeconds: 15  # SIGTERM: leave the consumer group, flush producers
+      containers:
+        - name: drift
+          image: gatekeeper:dev
+          command: ["python", "-m", "services.drift.main"]
+          envFrom:
+            - configMapRef: { name: gatekeeper-env }
+            - secretRef: { name: enforcer-token }
+          readinessProbe: { tcpSocket: { port: 9100 } }
+          # Lenient: under CPU saturation a busy process answers slowly, and a strict liveness
+          # probe kills it, which adds a restart and a rebalance to the overload (a cascade).
+          livenessProbe:
+            tcpSocket: { port: 9100 }
+            timeoutSeconds: 5
+            periodSeconds: 10
+            failureThreshold: 6
