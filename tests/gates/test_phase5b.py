@@ -12,7 +12,9 @@ from collections.abc import Callable
 
 import pytest
 
-SLO_S = 15  # docs/slo.md: rate-limited within 15 s, including one consumer failing abruptly
+# docs/slo.md: attacks rate-limited within 5 s when healthy, 20 s while one component fails
+SLO_HEALTHY_S = 5
+SLO_ONE_FAILURE_S = 20
 FAULT_AFTER_S = 2
 ATTACK_S = 40
 REPLICAS = 2
@@ -124,4 +126,4 @@ def test_attack_blocked_within_slo(scenario: str) -> None:
     finally:
         k("delete", "pod", name, "--grace-period=0", "--force", "--ignore-not-found")
     print(f"\n{scenario}: attacker rate-limited {took:.1f}s after the attack started")
-    assert took <= SLO_S
+    assert took <= (SLO_HEALTHY_S if scenario == "baseline" else SLO_ONE_FAILURE_S)

@@ -45,3 +45,37 @@ lenient (5 s timeout, 6 failures).
 KEDA scales the feature engine and detector on Kafka consumer-group lag (1 to 4 replicas;
 topics have 6 partitions). Observed: a 2.1M-event backlog left by a test scaled both from 1 to
 4 replicas without intervention.
+
+## Chaos tests (`tests/gates/test_phase5b.py`)
+
+Two replicas each of the feature engine and detector. Each scenario starts a 2,000 packets/s
+SYN flood, injects its failure 2 s in, and times attack start to the attacker's IP appearing in
+the enforcer's nftables sets. Pods are killed abruptly (`--force --grace-period=0`), so dead
+consumers cannot leave their groups. Three runs, no pod restarts in any:
+
+| Scenario | Run 1 (s) | Run 2 (s) | Run 3 (s) | Objective (`docs/slo.md`) |
+|---|---|---|---|---|
+| Baseline, no failure | 2.8 | 3.4 | 4.6 | 5 |
+| Kill a feature-engine pod | 3.2 | 3.6 | 11.3 | 20 |
+| Kill a detector pod | 3.6 | 18.2 | 10.0 | 20 |
+| Restart Redis (window state lost) | 5.8 | 7.3 | 7.0 | 20 |
+| Restart one of 3 Redpanda brokers | 15.3 | 16.1 | 15.5 | 20 |
+
+**Reading it:**
+- **Healthy baseline:** 3 consecutive flagged 1 s windows set a floor of about 3 s. Run 3's
+  4.6 s ran while lint and unit tests shared the CPU; the 5 s objective has little slack on
+  this saturated node.
+- **Killed consumers:** recovery depends on whether the dead pod owned the attacker's partition.
+  If it did, that partition idles until the 6 s session timeout evicts the pod and the group
+  rebalances (the 18.2 s run); if not, the attack is caught at baseline speed.
+- **Redis restart:** all window state is lost; the feature engine waits for Redis
+  (`while_redis_down`) and the windows refill, costing a few seconds.
+- **Broker restart:** the slowest case. Partition leadership and the group coordinator move to
+  the surviving brokers, and clients notice within the 10 s socket timeout. Replication factor 3
+  means no events are lost.
+
+**Fixed along the way (see `NOTES.md`):** the first runs took up to 40 s and pods restarted
+mid-test. Causes: the default 45 s session timeout and 60 s socket timeout (now 6 s and 10 s);
+consumers crashing on transient commit errors after a coordinator moved; and the feature engine
+crashing on a Redis connection reset. Each crash added a pod restart with backoff on top of the
+failure being tested.

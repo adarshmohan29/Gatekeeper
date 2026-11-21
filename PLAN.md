@@ -136,13 +136,13 @@ Design rules from the proposal's scalability section (§6b) that shape every pha
 ## Phase 5b: Scale and survive
 
 ### Tasks
-- [ ] Kubernetes on kind: manifests for every service, health and readiness probes, multiple replicas of the feature engine and detector.
-- [ ] Mitigation on Kubernetes: nftables agent (DaemonSet/sidecar) or NetworkPolicy. Decide and document.
-- [ ] Autoscaling the feature engine and detector on consumer lag (KEDA or HPA with external metrics).
-- [ ] Multi-broker Redpanda (3 brokers, replication factor 3).
-- [ ] Load test at 1, 2 and 4 replicas: sustained events/s, p50/p95/p99 detection latency, and the first bottleneck (Redis, inference or Kafka). Report in `docs/scaling.md`.
-- [ ] Chaos tests: kill a consumer (watch the rebalance), restart Redis, restart a broker. Record the detection impact and recovery time in `docs/scaling.md`.
-- [ ] Written SLO in `docs/slo.md` (e.g. "99% of attacks blocked within N s", with N taken from measurements), plus the hot-partition and window-size trade-offs.
+- [x] Kubernetes on kind: manifests for every service, health and readiness probes, multiple replicas of the feature engine and detector.
+- [x] Mitigation on Kubernetes: nftables agent (DaemonSet/sidecar) or NetworkPolicy. Decide and document.
+- [x] Autoscaling the feature engine and detector on consumer lag (KEDA or HPA with external metrics).
+- [x] Multi-broker Redpanda (3 brokers, replication factor 3).
+- [x] Load test at 1, 2 and 4 replicas: sustained events/s, p50/p95/p99 detection latency, and the first bottleneck (Redis, inference or Kafka). Report in `docs/scaling.md`.
+- [x] Chaos tests: kill a consumer (watch the rebalance), restart Redis, restart a broker. Record the detection impact and recovery time in `docs/scaling.md`.
+- [x] Written SLO in `docs/slo.md` (e.g. "99% of attacks blocked within N s", with N taken from measurements), plus the hot-partition and window-size trade-offs.
 
 ### Gate 5b
 - **Automated:** `tests/gates/test_phase5b.py`. Against kind: an attack is detected and blocked with 2+ replicas. Killing one consumer pod mid-attack still leads to a block within the SLO.

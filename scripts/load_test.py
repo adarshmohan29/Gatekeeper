@@ -1,9 +1,9 @@
 """Load test on kind: throughput and detection latency at 1, 2 and 4 consumer replicas.
 
 Requires the cluster (`make k8s-up`); reaches Prometheus through its own port-forward.
-Pins the feature engine and detector at N replicas
-(KEDA paused), offers a fixed load of synthetic flow events, and reads the results from
-Prometheus. Prints a Markdown table for docs/scaling.md.
+Pins the feature engine and detector at N replicas (KEDA paused), offers a fixed load of
+synthetic flow events, and reads the results from Prometheus. Prints a Markdown table for
+docs/scaling.md.
 """
 
 import json
@@ -18,12 +18,12 @@ RUN_S, MEASURE_S, SETTLE_S = 90, 45, 20
 SCALED = ("feature-engine", "detector")
 GROUPS = {"feature-engine": "flow-events", "detector": "features"}
 PROMETHEUS = "http://127.0.0.1:19090"
+KUBECTL = ["kubectl", "--context", "kind-gatekeeper", "-n", "gatekeeper"]
 BOOTSTRAP = "redpanda-0.redpanda:9092,redpanda-1.redpanda:9092,redpanda-2.redpanda:9092"
 
 
 def kubectl(*args: str) -> str:
-    cmd = ["kubectl", "--context", "kind-gatekeeper", "-n", "gatekeeper", *args]
-    return subprocess.run(cmd, check=True, capture_output=True, text=True).stdout
+    return subprocess.run([*KUBECTL, *args], check=True, capture_output=True, text=True).stdout
 
 
 def prom(expr: str) -> float | None:
@@ -71,11 +71,7 @@ def generate(i: int) -> subprocess.Popen[bytes]:
     sources = RATE_EACH // PER_SOURCE
     return subprocess.Popen(
         [
-            "kubectl",
-            "--context",
-            "kind-gatekeeper",
-            "-n",
-            "gatekeeper",
+            *KUBECTL,
             "run",
             f"bench-{i}",
             "--rm",
@@ -142,16 +138,7 @@ def main() -> None:
     ]
     print("| " + " | ".join(header) + " |\n|" + "---|" * len(header))
     forward = subprocess.Popen(
-        [
-            "kubectl",
-            "--context",
-            "kind-gatekeeper",
-            "-n",
-            "gatekeeper",
-            "port-forward",
-            "svc/prometheus",
-            "19090:9090",
-        ],
+        [*KUBECTL, "port-forward", "svc/prometheus", "19090:9090"],
         stdout=subprocess.DEVNULL,
     )
     time.sleep(3)

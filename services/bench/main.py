@@ -25,10 +25,10 @@ def main() -> None:
     parser.add_argument("--first-source", type=int, default=0)
     args = parser.parse_args()
 
-    out = producer(Settings.from_env().kafka_bootstrap)
+    settings = Settings.from_env()
+    out = producer(settings.kafka_bootstrap)
     srcs = [source(args.first_source + i) for i in range(args.sources)]
     keys = [s.encode() for s in srcs]
-    topic = Settings.from_env().flow_topic
     sent, start = 0, time.monotonic()
     while (elapsed := time.monotonic() - start) < args.seconds:
         due = int(args.rate * elapsed)  # pace to the target rate; catch up if we fell behind
@@ -36,7 +36,7 @@ def main() -> None:
         while sent < due:
             i = sent % args.sources
             try:
-                out.produce(topic, key=keys[i], value=event_bytes(srcs[i], now))
+                out.produce(settings.flow_topic, key=keys[i], value=event_bytes(srcs[i], now))
                 sent += 1
             except BufferError:
                 out.poll(0.01)

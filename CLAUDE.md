@@ -34,6 +34,8 @@ Real-time DDoS detection and automated mitigation platform. Runs locally; public
 - Pure logic lives in testable modules; `services/*/main.py` is thin I/O wiring, excluded from unit coverage and exercised by the gate tests.
 - Gate tests live in `tests/gates/test_phase<N>.py` (N = 0–4, 5a, 5b, 5c); run with `make gate N=<N>`.
 - Run the venv's Python (`.venv/bin/python`). Docker is OrbStack.
+- Kubernetes: `make k8s-up` (kind cluster `gatekeeper`, Calico, KEDA, builds and loads images), `make k8s-down`, `make load-test`, `make gate N=5b`. After a code change, rebuild `gatekeeper:dev`, `kind load docker-image` it and `rollout restart` the deployments. Compose and kind don't fit in memory together: `make k8s-down` before `make up`.
+- Debug a restarting pod with `kubectl -n gatekeeper logs <pod> --previous`.
 - macOS training quirk: torch and XGBoost each bundle OpenMP. `ml/__init__.py` imports XGBoost first, and torch runs single-threaded; otherwise XGBoost segfaults or training deadlocks.
 - Gates judge only what their own run caused (filter by start time), never accumulated history.
 - Metrics: prefix `gatekeeper_`; create labelled counter series at 0 at startup (a series that first appears at 1 hides that increase from `increase()`/alerts).
