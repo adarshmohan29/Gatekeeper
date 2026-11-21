@@ -46,4 +46,5 @@ def test_settings_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("FLOW_TOPIC", "custom")
     s = Settings.from_env()
     assert s.flow_topic == "custom"
-    assert s.kafka_bootstrap == "localhost:9092"
+    assert s.kafka_bootstrap == "127.0.0.1:19092"
+    assert s.capture_iface == "eth0"

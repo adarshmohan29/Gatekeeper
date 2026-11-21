@@ -13,7 +13,8 @@ Real-time DDoS detection and automated mitigation platform. Full proposal: `docs
 - scikit-learn, XGBoost, PyTorch (autoencoder → ONNX); KS/PSI for drift
 - nftables in the victim's network namespace for mitigation
 - Prometheus + Grafana
-- Docker Compose first; Kubernetes (kind) in Phase 5
+- Docker Compose first; Kubernetes (kind, multi-broker Redpanda, lag-based autoscaling) in Phase 5b
+- GitHub Actions CI; Helm or Kustomize (Phase 5c)
 - Locust (normal traffic), hping3 (attack traffic)
 
 ## Layout
@@ -21,9 +22,15 @@ Real-time DDoS detection and automated mitigation platform. Full proposal: `docs
 
 ## Conventions
 - Detectors implement `score(features) -> float` and are swapped by config only.
-- Kafka messages keyed by source IP.
+- Kafka messages keyed by source IP. Topics are created explicitly by `redpanda-init` in Compose, never auto-created.
+- Shared Kafka helpers live in `shared/kafka.py`; don't duplicate client config.
 - Config via env vars; no hardcoded hosts/ports.
-- Gate tests live in `tests/gates/test_phaseN.py`; run with `make gate N=<n>`.
+- Consumers hold no state in memory: all window state lives in Redis so services scale as consumer-group replicas.
+- At-least-once: commit offsets after processing. Effects must be idempotent; blocking twice is harmless.
+- Under overload, drop and count; never crash or block on an unbounded queue.
+- Pure logic lives in testable modules; `services/*/main.py` is thin I/O wiring, excluded from unit coverage and exercised by the gate tests.
+- Gate tests live in `tests/gates/test_phase<N>.py` (N = 0–4, 5a, 5b, 5c); run with `make gate N=<N>`.
+- Run the venv's Python (`.venv/bin/python`). Docker is OrbStack (`~/.orbstack/bin` must be on PATH).
 - Log what broke and what was measured in `NOTES.md`.
 - Core logic (feature windows, detector interface, mitigation rules, evaluation) — keep it readable and explain it when asked; the user must be able to defend it.
 

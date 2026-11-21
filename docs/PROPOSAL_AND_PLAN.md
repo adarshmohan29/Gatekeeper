@@ -60,6 +60,25 @@ Metrics per detector: detection delay, false-positive rate (including legitimate
 
 Data: all data comes from your own traffic generator, so no external dataset is needed. Because you start every attack yourself, labels are exact. To keep the models honest, randomize attack rates, durations, packet sizes and source counts, and hold out whole attack types (for example, train without UDP floods and test on them). Split by attack session, never randomly.
 
+## 6b. Scalability and reliability (interview material)
+
+Everything stays on ordinary software and containers: no special hardware. The goal is to build and measure the behaviors production systems care about, so you can discuss them from experience.
+
+| Topic | What you build | What you can say |
+| --- | --- | --- |
+| Horizontal scaling | Kafka topic with several partitions keyed by source IP; feature engine and detector run as consumer-group replicas; Kubernetes autoscaling driven by consumer lag | "Throughput went from X to Y events/s going from 1 to 4 replicas" |
+| Throughput and latency | A load-test report: sustained events/s, p50/p95/p99 detection latency, and the bottleneck (Redis, model inference, or Kafka) | Where the system breaks first and why |
+| Fault tolerance | Chaos tests: kill a consumer (watch the rebalance), restart Redis, restart a broker; Kafka replication across a small multi-broker local cluster | What happens to detection during each failure, and how fast it recovers |
+| Delivery semantics | At-least-once processing with idempotent mitigation (blocking twice is harmless); a dead-letter topic for malformed events | Why exactly-once is not needed here |
+| Backpressure | Bounded queues, a consumer-lag alert, and sampling under overload | What the system does when it cannot keep up |
+| High availability | Stateless services behind multiple replicas, health and readiness probes, automatic restarts | Which components are single points of failure, and what you would add next |
+| Reliability targets | A written SLO such as "99% of attacks blocked within N seconds", with N taken from your measurements | How you define and monitor "working" |
+| Delivery pipeline | CI (lint, tests, image build) on every push; configuration through environment variables; Helm or Kustomize manifests | How a change gets from commit to running system |
+
+Trade-offs worth preparing: keying by source IP keeps one source's state on one partition but can create a hot partition under a single heavy source; shorter windows detect faster but raise false positives; hard blocking is more effective than rate limiting but riskier for legitimate users.
+
+Honest limits to state: traffic is simulated and the cluster is local, so you can show scaling behavior and failure handling, but not internet-scale numbers.
+
 ## 7. Risks
 
 | Risk | Handling |
@@ -109,7 +128,11 @@ Rule: finish each phase and pass its gate before starting the next. Commit after
 ### Phase 5: Harden
 - [ ] Prometheus metrics and Grafana dashboards (lag, scores, detection latency, blocks).
 - [ ] Drift detection with an alert.
-- [ ] Kubernetes version (kind or minikube); stretch: autoscaling.
+- [ ] Kubernetes version (kind or minikube) with several replicas of the feature engine and detector, and autoscaling on consumer lag.
+- [ ] Load test: record sustained events/s and p50/p95/p99 detection latency at 1, 2 and 4 replicas.
+- [ ] Chaos tests: kill a consumer, restart Redis, restart a broker; record the impact and recovery time.
+- [ ] Add a dead-letter topic, a consumer-lag alert, and a written SLO.
+- [ ] CI pipeline (lint, tests, image build) and Helm or Kustomize manifests.
 - [ ] README with the architecture diagram, results table and limitations; a short demo video.
 - [ ] Gate: one-command demo of an attack and its mitigation.
 

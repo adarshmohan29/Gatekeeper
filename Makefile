@@ -5,7 +5,6 @@ COMPOSE ?= docker compose -f infra/compose/docker-compose.yml
 
 venv:
 	python3 -m venv .venv
-	$(PY) -m pip install -U pip
 	$(PY) -m pip install -e '.[dev]'
 
 up:
